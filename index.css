@@ -1,0 +1,247 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --primary: #5E5DF0; /* A more vibrant purple-blue */
+    --primary-dark: #4B4AC4;
+    --secondary: #7b2cbf; /* A richer purple */
+    --success: #28a745;
+    --warning: #ffc107;
+    --danger: #dc3545;
+    --light: #f4f7fc; /* Lighter, cooler background */
+    --dark: #23233c; /* Darker, more saturated text color */
+    --gray: #6c757d;
+}
+
+html {
+    font-size: 110%; /* Globally increase base font size */
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--light);
+    color: var(--dark);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.text-shadow-lg {
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+/* 3D and Embossed Font Effects */
+.text-3xl.font-bold, .text-2xl.font-bold {
+    font-weight: 900;
+    text-shadow: 0px 2px 3px rgba(0, 0, 0, 0.15);
+}
+
+h1, h2, h3, .card .font-bold {
+    font-weight: 800;
+    color: var(--dark);
+}
+
+
+/* Base classes for consistent styling and animations */
+@layer components {
+    .btn {
+        @apply font-bold py-2 px-5 rounded-lg transition-all duration-300 ease-in-out transform hover:-translate-y-0.5 active:translate-y-0 active:scale-95 focus:outline-none focus:ring-2 focus:ring-opacity-75 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
+    }
+    .btn-primary {
+        @apply text-white border-none;
+        background-image: linear-gradient(to right, var(--primary) 0%, var(--secondary) 100%);
+        box-shadow: 0 4px 15px 0 rgba(116, 79, 168, 0.4);
+    }
+    .btn-primary:hover {
+        background-image: linear-gradient(to right, var(--primary-dark) 0%, #5f2199 100%);
+    }
+    .btn-green {
+        @apply bg-green-600 text-white hover:bg-green-700 focus:ring-green-500;
+    }
+    .btn-red {
+        @apply bg-red-500 text-white hover:bg-red-600 focus:ring-red-500;
+    }
+    .btn-blue {
+        @apply bg-blue-500 text-white hover:bg-blue-600 focus:ring-blue-500;
+    }
+    .btn-secondary {
+        @apply bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 focus:ring-gray-400;
+    }
+    .btn-outline-green {
+        @apply bg-white text-green-600 border border-current hover:bg-green-50 focus:ring-green-500;
+    }
+    .btn-outline-red {
+        @apply bg-white text-red-600 border border-current hover:bg-red-50 focus:ring-red-500;
+    }
+    .btn-outline-primary {
+         @apply bg-white text-[var(--primary)] border border-current hover:bg-blue-50 focus:ring-[var(--primary)];
+    }
+    
+    .card {
+        @apply bg-white p-6 rounded-2xl transition-all duration-300 ease-in-out;
+        box-shadow: 0px 10px 30px -15px rgba(45, 55, 72, 0.15), 0px 5px 15px -10px rgba(45, 55, 72, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+    }
+    .card-hover {
+        @apply hover:shadow-xl hover:-translate-y-1;
+    }
+    
+    .input-field {
+        @apply mt-1 block w-full p-3 border border-gray-300 rounded-lg shadow-sm bg-gray-50 focus:ring-[var(--primary)] focus:border-[var(--primary)] transition-all duration-200 ease-in-out;
+    }
+}
+
+/* Keyframe Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.animate-fadeIn { animation: fadeIn 0.5s ease-in-out; }
+.animate-scaleIn { animation: scaleIn 0.3s ease-out; }
+
+/* Dashboard Stat Cards Overhaul */
+div[class*="bg-gradient-to-br"] {
+    box-shadow: 0 10px 20px -5px rgba(0,0,0,0.15), 0 4px 8px -4px rgba(0,0,0,0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+div[class*="bg-gradient-to-br"] .text-3xl.font-bold {
+    font-weight: 900;
+    text-shadow: 0px 4px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* New Sidebar Styles */
+.sidebar-nav-item {
+    @apply flex items-center p-3 my-1 mx-2 rounded-lg font-semibold text-gray-600 transition-all duration-200 ease-in-out;
+    -webkit-tap-highlight-color: transparent;
+}
+.sidebar-nav-item.active {
+    @apply text-white shadow-md -translate-y-px;
+    background-image: linear-gradient(to right, var(--primary) 0%, var(--secondary) 100%);
+}
+.sidebar-nav-item:not(.active):hover {
+    @apply bg-gray-100;
+}
+.sidebar-label {
+    @apply transition-opacity duration-200 whitespace-nowrap overflow-hidden;
+}
+
+
+/* AI Assistant Styles */
+.ai-fab {
+    @apply fixed bottom-8 right-8 w-16 h-16 bg-gradient-to-br from-[var(--primary)] to-[var(--secondary)] text-white rounded-full shadow-2xl flex items-center justify-center text-2xl transition-all duration-300 hover:scale-110 hover:rotate-12 z-40;
+}
+.ai-assistant-container {
+    @apply fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center sm:items-end sm:justify-end p-4 z-50;
+    animation: fadeIn 0.3s ease-out;
+}
+.ai-chat-window {
+    @apply bg-white w-full max-w-md h-[70vh] rounded-2xl shadow-2xl flex flex-col;
+    animation: scaleIn 0.3s ease-out;
+}
+.chat-bubble-wrapper {
+    @apply flex;
+}
+.chat-bubble-wrapper.user {
+    @apply justify-end;
+}
+.chat-bubble-wrapper.ai {
+    @apply justify-start;
+}
+.chat-bubble {
+    @apply max-w-xs md:max-w-sm p-3 rounded-2xl;
+}
+.chat-bubble-wrapper.user .chat-bubble {
+    @apply bg-[var(--primary)] text-white rounded-br-lg;
+}
+.chat-bubble-wrapper.ai .chat-bubble {
+    @apply bg-gray-100 text-gray-800 rounded-bl-lg;
+}
+.suggestion-chip {
+    @apply bg-gray-200 text-gray-700 text-xs font-semibold px-3 py-1.5 rounded-full hover:bg-gray-300 transition-colors;
+}
+.typing-indicator span {
+    @apply w-2 h-2 bg-gray-400 rounded-full inline-block animate-pulse;
+}
+.typing-indicator span:nth-child(2) { animation-delay: 0.1s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.2s; }
+
+/* Notification System Styles */
+.notification-bell {
+    @apply relative w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors text-gray-600;
+}
+.notification-badge {
+    @apply absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-gray-100;
+    animation: scaleIn 0.3s ease-out;
+}
+.notification-panel {
+    @apply absolute top-full right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 z-50 origin-top-right;
+    animation: fadeIn 0.2s ease-out;
+}
+.notification-item {
+    @apply flex items-start gap-3 p-3 border-b border-gray-100 transition-colors cursor-pointer;
+}
+.notification-item.unread {
+    @apply bg-blue-50;
+}
+.notification-item:hover {
+    @apply bg-gray-50;
+}
+.notification-item:last-child {
+    @apply border-b-0;
+}
+
+
+/* Vertical Payment Tabs for Join System page */
+.vertical-payment-tabs {
+    @apply flex flex-col gap-1;
+}
+
+.vertical-payment-tab {
+    @apply flex items-center p-3 w-full text-left rounded-lg transition-all duration-200 ease-in-out;
+    @apply font-semibold text-gray-600;
+}
+
+.vertical-payment-tab:hover:not(.active) {
+    @apply bg-gray-100;
+}
+
+.vertical-payment-tab.active {
+    @apply bg-[var(--primary)] text-white shadow-md;
+}
+
+.vertical-payment-tab .tab-status-icon {
+    @apply w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold mr-3 flex-shrink-0 transition-colors;
+}
+
+/* Status specific styles for the icon */
+.vertical-payment-tab.status-confirmed .tab-status-icon {
+    @apply bg-green-100 text-green-700;
+}
+.vertical-payment-tab.status-unpaid .tab-status-icon,
+.vertical-payment-tab.status-expired .tab-status-icon,
+.vertical-payment-tab.status-failed .tab-status-icon {
+    @apply bg-gray-200 text-gray-600;
+}
+.vertical-payment-tab.status-pending .tab-status-icon,
+.vertical-payment-tab.status-verifying .tab-status-icon {
+    @apply bg-yellow-100 text-yellow-800;
+}
+.vertical-payment-tab.status-disputed .tab-status-icon {
+    @apply bg-orange-100 text-orange-800;
+}
+
+/* Override for active tab icons */
+.vertical-payment-tab.active .tab-status-icon {
+    @apply bg-white/20 text-white;
+}
+
+.vertical-payment-tab .tab-title {
+    @apply truncate;
+}
