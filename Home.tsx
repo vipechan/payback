@@ -3,14 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React from 'react';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef }from 'react';
 import Header from './components/Header';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 
 
 // --- CONSTANTS ---
-const PAYMENT_TIMER_DURATION = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
 const API_KEY = process.env.API_KEY;
 
 // --- TYPE DEFINITIONS ---
@@ -100,6 +99,7 @@ interface SystemConfig {
     binaryAmount: number;
     uplineAmount: number;
     adminFeeAmount: number;
+    paymentTimerDuration: number; // Duration in hours
 }
 
 interface AdminPaymentOption {
@@ -143,6 +143,7 @@ const initialSystemConfig: SystemConfig = {
     binaryAmount: 1000,
     uplineAmount: 500,
     adminFeeAmount: 500,
+    paymentTimerDuration: 2, // 2 hours
 };
 
 const initialAdminPaymentOptions: AdminPaymentOption[] = [
@@ -181,8 +182,8 @@ const generateInitialPayments = (config: SystemConfig, adminOptions: AdminPaymen
     const adminOption = getRandomAdminOption();
 
     return [
-        { id: 'pay_ref', title: "1. Referral", amount: config.referralAmount, description: "Payment to your direct sponsor for referring you to the system.", receiverContact: '+91 12345 67890', type: "referral", iconClass: "fa-user-plus", status: 'unpaid', transactionId: '', proof: null, qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=sponsor@ybl&pn=SponsorName&am=${config.referralAmount}`, bankAccount: { name: 'Sponsor Name', number: '123456789012', ifsc: 'BANK0001234' }, upiId: 'sponsor@ybl', usdtAddress: '0x123abcde123abcde123abcde123abcde123abcde', assignedTimestamp: Date.now(), receiverId: 'usr_sponsor', uniqueUsdtAmount: generateUniqueAmount(config.referralAmount) },
-        { id: 'pay_bin', title: "2. Binary", amount: config.binaryAmount, description: "Activates your position in the binary income plan.", receiverContact: binaryOption.receiverContact, type: "binary", iconClass: "fa-balance-scale", status: 'unpaid', transactionId: '', proof: null, qrCodeUrl: getQrUrl(binaryOption.upiId, config.binaryAmount, binaryOption.qrCodeUrl), bankAccount: binaryOption.bankAccount, upiId: binaryOption.upiId, usdtAddress: binaryOption.usdtAddress, assignedTimestamp: Date.now(), receiverId: 'system_binary', uniqueUsdtAmount: generateUniqueAmount(config.binaryAmount) },
+        { id: 'pay_ref', title: "1. Referral", amount: config.referralAmount, description: "Payment to your direct sponsor for referring you to the system.", receiverContact: '+91 12345 67890', type: "referral", iconClass: "fa-user-plus", status: 'unpaid', transactionId: '', proof: null, qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=sponsor@ybl&pn=SponsorName&am=${config.referralAmount}`, bankAccount: { name: 'Sponsor Name', number: '123456789012', ifsc: 'BANK0001234' }, upiId: 'sponsor@ybl', usdtAddress: '0x123abcde123abcde123abcde123abcde123abcde', assignedTimestamp: Date.now(), receiverId: 'usr_sponsor', uniqueUsdtAmount: generateUniqueAmount(config.referralAmount / 100) },
+        { id: 'pay_bin', title: "2. Binary", amount: config.binaryAmount, description: "Activates your position in the binary income plan.", receiverContact: binaryOption.receiverContact, type: "binary", iconClass: "fa-balance-scale", status: 'unpaid', transactionId: '', proof: null, qrCodeUrl: getQrUrl(binaryOption.upiId, config.binaryAmount, binaryOption.qrCodeUrl), bankAccount: binaryOption.bankAccount, upiId: binaryOption.upiId, usdtAddress: binaryOption.usdtAddress, assignedTimestamp: Date.now(), receiverId: 'system_binary', uniqueUsdtAmount: generateUniqueAmount(config.binaryAmount / 100) },
         ...Array.from({ length: 5 }, (_, i) => ({
             id: `pay_up${i + 1}`,
             title: `${3 + i}. Upline ${i + 1}`,
@@ -200,9 +201,9 @@ const generateInitialPayments = (config: SystemConfig, adminOptions: AdminPaymen
             usdtAddress: `0x${(789 + i).toString(16)}ijklm789ijklm789ijklm789ijklm789ijklm`,
             assignedTimestamp: Date.now(),
             receiverId: `usr_0${2 + i}`,
-            uniqueUsdtAmount: generateUniqueAmount(config.uplineAmount)
+            uniqueUsdtAmount: generateUniqueAmount(config.uplineAmount / 100)
         })),
-        { id: 'pay_adm', title: "8. Admin Fee", amount: config.adminFeeAmount, description: "One-time fee for account setup and maintenance.", receiverContact: adminOption.receiverContact, type: "admin", iconClass: "fa-user-shield", status: 'unpaid', transactionId: '', proof: null, qrCodeUrl: getQrUrl(adminOption.upiId, config.adminFeeAmount, adminOption.qrCodeUrl), bankAccount: adminOption.bankAccount, upiId: adminOption.upiId, usdtAddress: adminOption.usdtAddress, assignedTimestamp: Date.now(), receiverId: 'system_admin', uniqueUsdtAmount: generateUniqueAmount(config.adminFeeAmount) },
+        { id: 'pay_adm', title: "8. Admin Fee", amount: config.adminFeeAmount, description: "One-time fee for account setup and maintenance.", receiverContact: adminOption.receiverContact, type: "admin", iconClass: "fa-user-shield", status: 'unpaid', transactionId: '', proof: null, qrCodeUrl: getQrUrl(adminOption.upiId, config.adminFeeAmount, adminOption.qrCodeUrl), bankAccount: adminOption.bankAccount, upiId: adminOption.upiId, usdtAddress: adminOption.usdtAddress, assignedTimestamp: Date.now(), receiverId: 'system_admin', uniqueUsdtAmount: generateUniqueAmount(config.adminFeeAmount / 100) },
     ];
 };
 
@@ -384,6 +385,269 @@ const getInitialState = () => {
     };
 };
 
+// --- START PUBLIC PAGE COMPONENTS ---
+
+const LandingHeader = ({ onNavigate }) => {
+    const [isScrolled, setIsScrolled] = useState(false);
+
+    useEffect(() => {
+        const handleScroll = () => {
+            setIsScrolled(window.scrollY > 10);
+        };
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    return (
+        <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled ? 'bg-white shadow-md' : 'bg-transparent'}`}>
+            <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="flex items-center justify-between h-20">
+                    <h1 className="text-3xl font-extrabold text-[var(--primary)]">PAYBACK247</h1>
+                    <nav className="hidden md:flex items-center gap-8">
+                        <a href="#how-it-works" className="font-semibold text-gray-600 hover:text-[var(--primary)] transition-colors">How It Works</a>
+                        <a href="#plans" className="font-semibold text-gray-600 hover:text-[var(--primary)] transition-colors">Plans</a>
+                        <a href="#faq" className="font-semibold text-gray-600 hover:text-[var(--primary)] transition-colors">FAQ</a>
+                    </nav>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => onNavigate('login')} className="btn btn-secondary">Login</button>
+                        <button onClick={() => onNavigate('signup')} className="btn btn-primary">Join Now</button>
+                    </div>
+                </div>
+            </div>
+        </header>
+    );
+};
+
+const FAQItem = ({ question, answer }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    return (
+        <div className="border-b">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full flex justify-between items-center text-left py-4"
+            >
+                <h3 className="font-semibold text-lg">{question}</h3>
+                <i className={`fas fa-chevron-down text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}></i>
+            </button>
+            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-96' : 'max-h-0'}`}>
+                <p className="pb-4 text-gray-600">{answer}</p>
+            </div>
+        </div>
+    );
+};
+
+const Footer = () => (
+    <footer className="bg-gray-800 text-white">
+        <div className="container mx-auto py-8 px-4 sm:px-6 lg:px-8 text-center">
+            <p>&copy; {new Date().getFullYear()} Payback247. All Rights Reserved.</p>
+        </div>
+    </footer>
+);
+
+const LandingPage = ({ onNavigate }) => {
+    const faqs = [
+        { q: "What is Payback247?", a: "Payback247 is a decentralized peer-to-peer payment system that allows members to directly send and receive payments for participation in various income plans, such as referral, binary, and matrix systems." },
+        { q: "How do I earn money?", a: "You can earn through multiple streams: direct referral commissions, binary team matching bonuses, and matrix level completion income. All payments are made directly from one member to another." },
+        { q: "Are my payments secure?", a: "Yes. All transactions are peer-to-peer, meaning they go directly from your account to the receiver's account. The platform facilitates the connection but never holds your funds." },
+        { q: "Is this a pyramid or Ponzi scheme?", a: "No. Payback247 is based on a legitimate network marketing model where income is generated from the activation of income plans by new members. There is no central pool of money and no promise of passive returns without effort." },
+    ];
+
+    return (
+        <div className="bg-white">
+            <LandingHeader onNavigate={onNavigate} />
+            <main>
+                {/* Hero Section */}
+                <section className="relative pt-32 pb-20 lg:pt-48 lg:pb-32 bg-gradient-to-br from-indigo-50 to-purple-50">
+                    <div className="container mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                        <h1 className="text-4xl md:text-6xl font-extrabold text-gray-900 leading-tight">
+                            Unlock Your Financial Potential with
+                            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-[var(--primary)] to-[var(--secondary)] mt-2">Peer-to-Peer Payments</span>
+                        </h1>
+                        <p className="mt-6 max-w-2xl mx-auto text-lg text-gray-600">
+                            Join a community-driven system designed for mutual growth and automated earnings. Secure, transparent, and direct payments between members.
+                        </p>
+                        <div className="mt-8 flex justify-center gap-4">
+                            <button onClick={() => onNavigate('signup')} className="btn btn-primary !px-8 !py-3">Get Started</button>
+                            <a href="#how-it-works" className="btn btn-secondary !px-8 !py-3">Learn More</a>
+                        </div>
+                    </div>
+                </section>
+
+                {/* How It Works Section */}
+                <section id="how-it-works" className="py-20 bg-white">
+                    <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="text-center mb-12">
+                            <h2 className="text-3xl font-extrabold text-gray-900">A Simple Path to Earning</h2>
+                            <p className="mt-4 max-w-2xl mx-auto text-lg text-gray-600">Follow these three simple steps to start your journey with Payback247.</p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+                            <div className="card">
+                                <div className="text-4xl text-[var(--primary)] mb-4"><i className="fas fa-user-plus"></i></div>
+                                <h3 className="text-xl font-bold mb-2">1. Join the System</h3>
+                                <p className="text-gray-600">Create your account and get your unique referral link to start building your network.</p>
+                            </div>
+                            <div className="card">
+                                <div className="text-4xl text-[var(--secondary)] mb-4"><i className="fas fa-money-check-alt"></i></div>
+                                <h3 className="text-xl font-bold mb-2">2. Activate Plans</h3>
+                                <p className="text-gray-600">Make direct peer-to-peer payments to activate your positions in our various income plans.</p>
+                            </div>
+                            <div className="card">
+                                <div className="text-4xl text-green-500 mb-4"><i className="fas fa-chart-line"></i></div>
+                                <h3 className="text-xl font-bold mb-2">3. Receive Payments</h3>
+                                <p className="text-gray-600">Receive direct payments from your downline as they join and activate their own income plans.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Plans Overview Section */}
+                <section id="plans" className="py-20 bg-gray-50">
+                    <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+                         <div className="text-center mb-12">
+                            <h2 className="text-3xl font-extrabold text-gray-900">Multiple Streams of Income</h2>
+                            <p className="mt-4 max-w-2xl mx-auto text-lg text-gray-600">Our system is designed with three powerful ways to generate income.</p>
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                             <div className="p-8 rounded-2xl bg-white shadow-lg border border-red-200">
+                                <i className="fas fa-users text-3xl text-red-500 mb-4"></i>
+                                <h3 className="text-2xl font-bold mb-3">Sponsor Income</h3>
+                                <p className="text-gray-600">Earn a direct commission for every new member you personally introduce to the platform. The fastest way to start earning.</p>
+                            </div>
+                            <div className="p-8 rounded-2xl bg-white shadow-lg border border-blue-200">
+                                <i className="fas fa-balance-scale text-3xl text-blue-500 mb-4"></i>
+                                <h3 className="text-2xl font-bold mb-3">Binary Income</h3>
+                                <p className="text-gray-600">Build two teams (left and right) and earn bonuses every time they are balanced. This encourages teamwork and exponential growth.</p>
+                            </div>
+                            <div className="p-8 rounded-2xl bg-white shadow-lg border border-purple-200">
+                                 <i className="fas fa-sitemap text-3xl text-purple-500 mb-4"></i>
+                                <h3 className="text-2xl font-bold mb-3">Matrix Income</h3>
+                                <p className="text-gray-600">Benefit from our automated "spillover" system. Earn from members placed in your matrix by your upline and the system itself.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                {/* FAQ Section */}
+                <section id="faq" className="py-20 bg-white">
+                    <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-3xl">
+                        <div className="text-center mb-12">
+                            <h2 className="text-3xl font-extrabold text-gray-900">Frequently Asked Questions</h2>
+                        </div>
+                        <div className="space-y-4">
+                            {faqs.map((faq, index) => <FAQItem key={index} question={faq.q} answer={faq.a} />)}
+                        </div>
+                    </div>
+                </section>
+            </main>
+            <Footer />
+        </div>
+    );
+};
+
+const AuthLayout = ({ title, children, formType, onNavigate }) => (
+     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50 p-4">
+        <div className="w-full max-w-md">
+             <div className="text-center mb-6">
+                <a onClick={() => onNavigate('landing')} className="text-3xl font-extrabold text-[var(--primary)] cursor-pointer">PAYBACK247</a>
+             </div>
+            <div className="card">
+                <h2 className="text-2xl font-bold text-center mb-6">{title}</h2>
+                {children}
+            </div>
+             <p className="text-center mt-6 text-gray-600">
+                {formType === 'login' ? "Don't have an account? " : "Already have an account? "}
+                <button onClick={() => onNavigate(formType === 'login' ? 'signup' : 'login')} className="font-semibold text-[var(--primary)] hover:underline">
+                    {formType === 'login' ? 'Sign Up' : 'Log In'}
+                </button>
+            </p>
+        </div>
+    </div>
+);
+
+
+const LoginPage = ({ onLogin, onNavigate }) => {
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onLogin();
+    };
+
+    return (
+        <AuthLayout title="Welcome Back!" formType="login" onNavigate={onNavigate}>
+            <form onSubmit={handleSubmit} className="space-y-6">
+                <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">Email Address</label>
+                    <input type="email" required className="input-field" placeholder="you@example.com" />
+                </div>
+                <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">Password</label>
+                    <input type="password" required className="input-field" placeholder="••••••••" />
+                </div>
+                <div className="text-right">
+                    <a href="#" className="text-sm font-medium text-[var(--primary)] hover:underline">Forgot password?</a>
+                </div>
+                <button type="submit" className="btn btn-primary w-full !py-3">Log In</button>
+            </form>
+        </AuthLayout>
+    );
+};
+
+const SignupPage = ({ onSignup, onNavigate, initialRefInfo }) => {
+    const [formData, setFormData] = useState({
+        fullName: '',
+        email: '',
+        password: '',
+        sponsorId: initialRefInfo?.refId || '',
+        position: initialRefInfo?.position || '',
+    });
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+    
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSignup();
+    };
+    
+    return (
+        <AuthLayout title="Create Your Account" formType="signup" onNavigate={onNavigate}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                 <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">Full Name</label>
+                    <input type="text" name="fullName" value={formData.fullName} onChange={handleInputChange} required className="input-field" placeholder="John Doe" />
+                </div>
+                <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">Email Address</label>
+                    <input type="email" name="email" value={formData.email} onChange={handleInputChange} required className="input-field" placeholder="you@example.com" />
+                </div>
+                <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">Password</label>
+                    <input type="password" name="password" value={formData.password} onChange={handleInputChange} required className="input-field" placeholder="••••••••" />
+                </div>
+                <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">Sponsor ID</label>
+                    <input type="text" name="sponsorId" value={formData.sponsorId} onChange={handleInputChange} disabled={!!initialRefInfo?.refId} className="input-field disabled:bg-gray-200 disabled:cursor-not-allowed" placeholder="Enter sponsor ID (optional)" />
+                </div>
+                 <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">Position</label>
+                    <select name="position" value={formData.position} onChange={handleInputChange} disabled={!!initialRefInfo?.position} className="input-field disabled:bg-gray-200 disabled:cursor-not-allowed">
+                        <option value="" disabled={!!initialRefInfo?.position}>Select placement side</option>
+                        <option value="left">Left</option>
+                        <option value="right">Right</option>
+                    </select>
+                     {initialRefInfo?.position && (
+                        <p className="text-xs text-gray-500 mt-1">Position is determined by your sponsor's link.</p>
+                    )}
+                </div>
+                <button type="submit" className="btn btn-primary w-full !py-3 mt-2">Create Account</button>
+            </form>
+        </AuthLayout>
+    );
+};
+
+// --- END PUBLIC PAGE COMPONENTS ---
+
 // --- HELPER COMPONENTS ---
 
 const StatusBadge = ({ status }: { status: string }) => {
@@ -432,7 +696,7 @@ const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({ isOpen, onClose
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+        <div className="fixed inset-0 bg-gray-200 bg-opacity-75 backdrop-blur-sm flex justify-center items-center z-50">
             <div className="card w-full max-w-md animate-scaleIn">
                 <h2 className="text-xl font-bold mb-4 text-center">{title}</h2>
                 <div className="bg-gray-50/70 p-4 my-6 rounded-lg text-center">
@@ -552,8 +816,9 @@ const DashboardTab = ({ matrixData, binaryData, sponsorData, onTabChange, isAcco
     const totalCommissionPotential = totalMatrixUsersCapacity * matrixData.commissionPerLevel;
 
     const [copiedLink, setCopiedLink] = React.useState('');
-    const leftLink = 'https://payback247.com/join?ref=JD123&pos=left';
-    const rightLink = 'https://payback247.com/join?ref=JD123&pos=right';
+    const getBaseUrl = () => `${window.location.protocol}//${window.location.host}${window.location.pathname}`;
+    const leftLink = `${getBaseUrl()}?ref=JD123&pos=left`;
+    const rightLink = `${getBaseUrl()}?ref=JD123&pos=right`;
 
     const handleCopyLink = (link: string) => {
         navigator.clipboard.writeText(link);
@@ -781,9 +1046,10 @@ interface PaymentCardProps {
     onUpdate: (id: string, field: 'transactionId' | 'proof', value: string) => void;
     onSubmit: (payment: Payment) => void;
     onAutoVerify: (payment: Payment) => void;
+    paymentTimerDurationMs: number;
 }
 
-const PaymentCard: React.FC<PaymentCardProps> = ({ payment, onUpdate, onSubmit, onAutoVerify }) => {
+const PaymentCard: React.FC<PaymentCardProps> = ({ payment, onUpdate, onSubmit, onAutoVerify, paymentTimerDurationMs }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [fileName, setFileName] = useState<string | null>(null);
     const [activeMethod, setActiveMethod] = useState('qr');
@@ -849,7 +1115,7 @@ const PaymentCard: React.FC<PaymentCardProps> = ({ payment, onUpdate, onSubmit, 
                      {payment.assignedTimestamp && payment.type !== 'admin' && (
                         <div className="mb-4">
                             <p className="text-center text-sm font-semibold text-gray-700 mb-2">Time remaining to complete payment:</p>
-                            <CountdownTimer expiryTimestamp={payment.assignedTimestamp + PAYMENT_TIMER_DURATION} />
+                            <CountdownTimer expiryTimestamp={payment.assignedTimestamp + paymentTimerDurationMs} />
                         </div>
                     )}
                     <div className="bg-gray-100 p-3 rounded-lg">
@@ -997,9 +1263,10 @@ interface JoinTabProps {
     onUpdatePayment: (id: string, field: 'transactionId' | 'proof', value: string) => void;
     onSubmitPayment: (payment: Payment) => void;
     onAutoVerify: (payment: Payment) => void;
+    paymentTimerDurationMs: number;
 }
 
-const JoinTab = ({ payments, onUpdatePayment, onSubmitPayment, onAutoVerify }: JoinTabProps) => {
+const JoinTab = ({ payments, onUpdatePayment, onSubmitPayment, onAutoVerify, paymentTimerDurationMs }: JoinTabProps) => {
     const [modalPayment, setModalPayment] = useState<Payment | null>(null);
     const [activePaymentId, setActivePaymentId] = useState<string | null>(null);
 
@@ -1091,6 +1358,7 @@ const JoinTab = ({ payments, onUpdatePayment, onSubmitPayment, onAutoVerify }: J
                                         onUpdate={onUpdatePayment}
                                         onSubmit={handleSubmitClick}
                                         onAutoVerify={onAutoVerify}
+                                        paymentTimerDurationMs={paymentTimerDurationMs}
                                     />
                                 </div>
                             )}
@@ -1132,9 +1400,10 @@ interface ConfirmationsTabProps {
     confirmations: Confirmation[];
     onConfirm: (confirmationId: string) => void;
     onReject: (confirmationId: string) => void;
+    paymentTimerDurationMs: number;
 }
 
-const ConfirmationsTab: React.FC<ConfirmationsTabProps> = ({ confirmations, onConfirm, onReject }) => {
+const ConfirmationsTab: React.FC<ConfirmationsTabProps> = ({ confirmations, onConfirm, onReject, paymentTimerDurationMs }) => {
     const [viewingProof, setViewingProof] = useState<string | null>(null);
     const [dialogState, setDialogState] = useState<{
         isOpen: boolean;
@@ -1192,7 +1461,7 @@ const ConfirmationsTab: React.FC<ConfirmationsTabProps> = ({ confirmations, onCo
                     <div className="space-y-3">
                          <div>
                             <p className="text-center text-xs font-semibold text-gray-700 mb-1">Time left to confirm:</p>
-                            <CountdownTimer expiryTimestamp={c.submittedTimestamp + PAYMENT_TIMER_DURATION} />
+                            <CountdownTimer expiryTimestamp={c.submittedTimestamp + paymentTimerDurationMs} />
                         </div>
                         <div className="flex items-center gap-3 justify-end">
                             <button onClick={() => setViewingProof(c.proof)} className="btn btn-secondary !py-1.5 !px-3 text-xs">
@@ -2320,6 +2589,19 @@ const SystemConfigTab: React.FC<SystemConfigTabProps> = ({ systemConfig, onSaveC
                     </section>
 
                     <section>
+                        <h3 className="text-lg font-bold mb-4">System Timers</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div>
+                                <label className="text-sm font-medium text-gray-600 block mb-1">Payment/Confirmation Timer</label>
+                                <div className="relative">
+                                    <input type="number" name="paymentTimerDuration" value={tempConfig.paymentTimerDuration} onChange={handleConfigChange} disabled={!isEditing} className="input-field pr-16" />
+                                    <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500">hours</span>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section>
                         <h3 className="text-lg font-bold mb-4">Admin Payment Receiving Options</h3>
                         <div className="space-y-4">
                             {tempOptions.map(opt => (
@@ -2474,7 +2756,7 @@ const AIAssistant = ({ isOpen, onClose, history, onSend, isLoading, onSuggestion
     );
 };
 
-const SidebarNav = ({ isOpen, onToggle, activeTab, onTabChange, visibleTabs, pendingConfirmationsCount, disputesCount }) => {
+const SidebarNav = ({ isOpen, onToggle, activeTab, onTabChange, visibleTabs, pendingConfirmationsCount, disputesCount, onLogout }) => {
     const handleTabClick = (tabId) => {
         onTabChange(tabId);
         if (window.innerWidth < 1024) { // Close sidebar on mobile after selection
@@ -2520,14 +2802,24 @@ const SidebarNav = ({ isOpen, onToggle, activeTab, onTabChange, visibleTabs, pen
                         </button>
                     ))}
                 </div>
+                <div className="p-2 border-t">
+                    <button
+                        onClick={onLogout}
+                        className="sidebar-nav-item w-full"
+                        title="Logout"
+                    >
+                        <i className={`fas fa-sign-out-alt w-8 text-center text-lg ${isOpen ? '' : 'mx-auto'}`}></i>
+                        <span className={`ml-3 sidebar-label ${isOpen ? 'opacity-100' : 'opacity-0'}`}>Logout</span>
+                    </button>
+                </div>
             </nav>
         </>
     );
 };
 
 
-// The main component that orchestrates everything
-const Home = () => {
+// The Dashboard component, containing the original app logic
+const Dashboard = ({ onLogout }) => {
     const [initialAppState] = useState(getInitialState);
 
     const [activeTab, setActiveTab] = useState(initialAppState.activeTab);
@@ -2596,6 +2888,8 @@ const Home = () => {
     const isQualifiedForBinary = hasLeftSponsor && hasRightSponsor;
     
     const prevIsQualifiedRef = useRef(isQualifiedForBinary);
+
+    const paymentTimerDurationMs = systemConfig.paymentTimerDuration * 60 * 60 * 1000;
 
     // Effect to process pending binary payments upon qualification
     useEffect(() => {
@@ -2685,7 +2979,7 @@ const Home = () => {
                 let hasChanged = false;
                 const updatedPayments = prevPayments.map((p): Payment => {
                     if (p.status === 'unpaid' && p.assignedTimestamp && p.type !== 'admin') {
-                        if (Date.now() > p.assignedTimestamp + PAYMENT_TIMER_DURATION) {
+                        if (Date.now() > p.assignedTimestamp + paymentTimerDurationMs) {
                             hasChanged = true;
                             return { ...p, status: 'expired' };
                         }
@@ -2697,12 +2991,12 @@ const Home = () => {
         }, 1000);
 
         return () => clearInterval(timerInterval);
-    }, []);
+    }, [paymentTimerDurationMs]);
 
     useEffect(() => {
         const confirmationTimerInterval = setInterval(() => {
             const now = Date.now();
-            const expiredConfirmations = pendingConfirmations.filter(c => now > (c.submittedTimestamp + PAYMENT_TIMER_DURATION));
+            const expiredConfirmations = pendingConfirmations.filter(c => now > (c.submittedTimestamp + paymentTimerDurationMs));
             
             if (expiredConfirmations.length > 0) {
                 const expiredConfirmationIds = expiredConfirmations.map(c => c.id);
@@ -2742,7 +3036,7 @@ const Home = () => {
         }, 1000);
 
         return () => clearInterval(confirmationTimerInterval);
-    }, [pendingConfirmations]);
+    }, [pendingConfirmations, paymentTimerDurationMs]);
 
     const handleUpdatePayment = (id: string, field: 'transactionId' | 'proof', value: string) => {
         setPaymentsData(prev =>
@@ -3003,6 +3297,7 @@ const Home = () => {
                 visibleTabs={visibleTabs}
                 pendingConfirmationsCount={pendingConfirmations.length}
                 disputesCount={disputes.length}
+                onLogout={onLogout}
             />
             <div className={`flex-1 flex flex-col transition-all duration-300 ease-in-out ${isSidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
                 <Header 
@@ -3016,8 +3311,8 @@ const Home = () => {
                 />
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6">
                     {activeTab === 'dashboard' && <DashboardTab matrixData={initialMatrixData} binaryData={binaryData} sponsorData={sponsorData} onTabChange={setActiveTab} isAccountActive={isAccountActive} isQualifiedForBinary={isQualifiedForBinary} />}
-                    {activeTab === 'join' && <JoinTab payments={paymentsData} onUpdatePayment={handleUpdatePayment} onSubmitPayment={handleSubmitPayment} onAutoVerify={handleAutoVerify} />}
-                    {activeTab === 'confirmations' && <ConfirmationsTab confirmations={pendingConfirmations} onConfirm={handleConfirmPayment} onReject={handleRejectPayment} />}
+                    {activeTab === 'join' && <JoinTab payments={paymentsData} onUpdatePayment={handleUpdatePayment} onSubmitPayment={handleSubmitPayment} onAutoVerify={handleAutoVerify} paymentTimerDurationMs={paymentTimerDurationMs} />}
+                    {activeTab === 'confirmations' && <ConfirmationsTab confirmations={pendingConfirmations} onConfirm={handleConfirmPayment} onReject={handleRejectPayment} paymentTimerDurationMs={paymentTimerDurationMs} />}
                     {activeTab === 'matrix' && <MatrixTab />}
                     {activeTab === 'binary' && <BinaryTab binaryData={binaryData} sponsorData={sponsorData} isQualifiedForBinary={isQualifiedForBinary} onQualify={handleQualifyForBinary} onProcessQueue={handleProcessBinaryQueue} />}
                     {activeTab === 'sponsor' && <SponsorTab sponsorData={sponsorData} />}
@@ -3045,5 +3340,55 @@ const Home = () => {
         </div>
     );
 };
+
+// The main component that orchestrates everything
+const Home = () => {
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [publicView, setPublicView] = useState('landing'); // 'landing', 'login', 'signup'
+    const [referralInfo, setReferralInfo] = useState({ refId: null, position: null });
+
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const refId = urlParams.get('ref');
+        const position = urlParams.get('pos');
+        if (refId) {
+            setReferralInfo({ refId, position });
+            // If a referral link is used, go straight to signup
+            setPublicView('signup');
+        }
+    }, []);
+
+    const handleLogin = () => {
+        setIsAuthenticated(true);
+    };
+
+    const handleSignup = () => {
+        // In a real app, this would likely navigate to login or directly to dashboard
+        setIsAuthenticated(true);
+    };
+
+    const handleLogout = () => {
+        setIsAuthenticated(false);
+        setPublicView('landing');
+    };
+
+    const navigate = (view) => {
+        setPublicView(view);
+    };
+
+    if (!isAuthenticated) {
+        switch (publicView) {
+            case 'login':
+                return <LoginPage onLogin={handleLogin} onNavigate={navigate} />;
+            case 'signup':
+                return <SignupPage onSignup={handleSignup} onNavigate={navigate} initialRefInfo={referralInfo} />;
+            default:
+                return <LandingPage onNavigate={navigate} />;
+        }
+    }
+
+    return <Dashboard onLogout={handleLogout} />;
+};
+
 
 export default Home;
