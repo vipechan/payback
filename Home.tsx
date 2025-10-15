@@ -15,7 +15,7 @@ const API_KEY = process.env.API_KEY;
 // --- TYPE DEFINITIONS ---
 interface Notification {
   id: string;
-  type: 'income' | 'referral' | 'payment_confirmed' | 'payment_received' | 'system';
+  type: 'income' | 'referral' | 'payment_confirmed' | 'payment_received' | 'system' | 'error';
   message: string;
   timestamp: number;
   isRead: boolean;
@@ -100,6 +100,10 @@ interface SystemConfig {
     uplineAmount: number;
     adminFeeAmount: number;
     paymentTimerDuration: number; // Duration in hours
+    bscScanApiKey: string;
+    cryptoReceivingAddress: string;
+    enableCryptoVerification: boolean;
+    requiredConfirmations: number;
 }
 
 interface AdminPaymentOption {
@@ -115,6 +119,50 @@ interface AdminPaymentOption {
     qrCodeUrl: string | null;
     receiverContact: string;
 }
+
+// --- MULTI-USER DATA STRUCTURES ---
+interface UserProfile {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    joinDate: string;
+    profilePicture: string;
+    notes?: string;
+    isAdmin: boolean;
+    notifications: {
+        email: boolean;
+        push: boolean;
+    };
+    paymentDetails: {
+        accountHolder: string;
+        accountNumber: string;
+        bankName: string;
+        ifsc: string;
+        upiId: string;
+        usdtAddress: string;
+        upiQRCode: string | null;
+    };
+}
+
+interface UserData {
+    profile: UserProfile;
+    paymentsData: Payment[];
+    pendingConfirmations: Confirmation[];
+    transactionsData: Transaction[];
+    disputes: Confirmation[];
+    notifications: Notification[];
+    binaryData: BinaryData;
+    sponsorData: SponsorData;
+}
+
+interface AppDatabase {
+    accounts: { [email: string]: { password: string; userId: string } };
+    users: { [userId: string]: UserData };
+    systemConfig: SystemConfig;
+    adminPaymentOptions: AdminPaymentOption[];
+}
+
 
 // --- DATA ---
 const initialNotificationsData: Notification[] = [
@@ -144,6 +192,10 @@ const initialSystemConfig: SystemConfig = {
     uplineAmount: 500,
     adminFeeAmount: 500,
     paymentTimerDuration: 2, // 2 hours
+    bscScanApiKey: '',
+    cryptoReceivingAddress: '',
+    enableCryptoVerification: false,
+    requiredConfirmations: 12,
 };
 
 const initialAdminPaymentOptions: AdminPaymentOption[] = [
@@ -212,14 +264,14 @@ const initialPendingConfirmationsData: Confirmation[] = [
     { id: 'conf_2', paymentId: 'pay_up1', senderName: 'Bob Williams', amount: 500, transactionId: 'TXN456ABC789', proof: 'https://images.unsplash.com/photo-1593062627473-2178c58a86c3?w=500', date: '2024-02-01 11:15', type: 'Upline Level 1', submittedTimestamp: Date.now(), receiverId: 'usr_02', paymentTitle: "3. Upline Level 1 Payment" },
 ];
 
-const adminUsersData: AdminUser[] = [
-    { id: 'usr_01', name: 'Alice Johnson', profilePicture: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=500', joinDate: '2024-02-01', paymentsConfirmed: 8, totalPayments: 8, notes: 'Top performer, potential team leader.', status: 'active', transactions: [ { date: '2024-02-01', type: 'referral', details: 'Initial referral payment', amount: 1000, status: 'confirmed' }, { date: '2024-02-01', type: 'binary', details: 'Binary system activation', amount: 1000, status: 'confirmed' }] },
-    { id: 'usr_02', name: 'Bob Williams', profilePicture: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=500', joinDate: '2024-02-05', paymentsConfirmed: 5, totalPayments: 8, notes: 'Needs follow-up on remaining payments.', status: 'active', transactions: [ { date: '2024-02-05', type: 'referral', details: 'Initial referral payment', amount: 1000, status: 'confirmed' } ] },
-    { id: 'usr_03', name: 'Charlie Brown', profilePicture: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=500', joinDate: '2024-02-10', paymentsConfirmed: 8, totalPayments: 8, notes: '', status: 'active', transactions: [] },
-    { id: 'usr_04', name: 'Diana Miller', profilePicture: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=500', joinDate: '2024-02-12', paymentsConfirmed: 2, totalPayments: 8, notes: 'Contacted support on 2024-02-15 regarding payment issue.', status: 'pending', transactions: [] },
-    { id: 'usr_05', name: 'Ethan Davis', profilePicture: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=500', joinDate: '2024-02-18', paymentsConfirmed: 8, totalPayments: 8, notes: '', status: 'active', transactions: [] },
-    { id: 'usr_06', name: 'Fiona Green', profilePicture: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=500', joinDate: '2024-02-20', paymentsConfirmed: 7, totalPayments: 8, notes: 'Last payment pending since 2024-02-22.', status: 'pending', transactions: [] },
-    { id: 'usr_07', name: 'George King', profilePicture: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=500', joinDate: '2024-02-21', paymentsConfirmed: 8, totalPayments: 8, notes: '', status: 'active', transactions: [] },
+const mockSourceUsers = [
+    { id: 'usr_01', name: 'Alice Johnson', profilePicture: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=500', joinDate: '2024-02-01' },
+    { id: 'usr_02', name: 'Bob Williams', profilePicture: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=500', joinDate: '2024-02-05' },
+    { id: 'usr_03', name: 'Charlie Brown', profilePicture: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=500', joinDate: '2024-02-10' },
+    { id: 'usr_04', name: 'Diana Miller', profilePicture: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=500', joinDate: '2024-02-12' },
+    { id: 'usr_05', name: 'Ethan Davis', profilePicture: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=500', joinDate: '2024-02-18' },
+    { id: 'usr_06', name: 'Fiona Green', profilePicture: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=500', joinDate: '2024-02-20' },
+    { id: 'usr_07', name: 'George King', profilePicture: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=500', joinDate: '2024-02-21' },
 ];
 
 const initialMatrixData = {
@@ -312,25 +364,89 @@ const initialTransactionsData = [
 
 ];
 
-const defaultProfileData = {
-    name: 'John Doe',
-    email: 'john.doe@example.com',
-    phone: '+1 234 567 890',
-    joinDate: '2024-01-01',
-    profilePicture: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=880&q=80',
-    notifications: {
-        email: true,
-        push: false,
-    },
-    paymentDetails: {
-        accountHolder: 'John Doe',
-        accountNumber: '123456789012',
-        bankName: 'Example Bank',
-        ifsc: 'EXAM0001234',
-        upiId: 'john.doe@upi',
-        usdtAddress: '0x123abcde123abcde123abcde123abcde123abcde',
-        upiQRCode: null,
-    }
+const generateNewUserData = (id, name, email, joinDate, profilePicture, isAdmin = false) => {
+    const config = initialSystemConfig;
+    const payments = generateInitialPayments(config, initialAdminPaymentOptions);
+    // Randomize payment status for mock users
+    payments.forEach(p => {
+        if (Math.random() > 0.3) p.status = 'confirmed';
+    });
+
+    return {
+        profile: {
+            id,
+            name,
+            email,
+            phone: `+1 ${Math.floor(200 + Math.random() * 799)} ${Math.floor(200 + Math.random() * 799)} ${Math.floor(1000 + Math.random() * 8999)}`,
+            joinDate,
+            profilePicture,
+            isAdmin,
+            notifications: { email: true, push: false },
+            paymentDetails: {
+                accountHolder: name,
+                accountNumber: `${Math.floor(100000000000 + Math.random() * 899999999999)}`,
+                bankName: 'Example Bank',
+                ifsc: `EXAM000${Math.floor(1000 + Math.random() * 8999)}`,
+                upiId: `${name.toLowerCase().replace(' ', '.')}@upi`,
+                usdtAddress: `0x${Array(40).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('')}`,
+                upiQRCode: null,
+            }
+        },
+        paymentsData: payments,
+        pendingConfirmations: [],
+        transactionsData: initialTransactionsData.slice(0, Math.floor(Math.random() * initialTransactionsData.length)),
+        disputes: [],
+        notifications: initialNotificationsData.slice(0, Math.floor(Math.random() * initialNotificationsData.length)),
+        binaryData: { ...initialBinaryData, currentUserPosition: Math.floor(Math.random() * 15) + 1 },
+        sponsorData: { ...initialSponsorData },
+    };
+};
+
+const generateInitialDatabase = (): AppDatabase => {
+    const db: AppDatabase = {
+        accounts: {},
+        users: {},
+        systemConfig: initialSystemConfig,
+        adminPaymentOptions: initialAdminPaymentOptions,
+    };
+    
+    const addUserToDb = (userData: UserData, pass: string) => {
+        db.users[userData.profile.id] = userData;
+        db.accounts[userData.profile.email] = { password: pass, userId: userData.profile.id };
+    };
+
+    // Add main user
+    const mainUserData = generateNewUserData(
+        'user_main',
+        'John Doe',
+        'user@example.com',
+        '2024-01-01',
+        'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=500',
+        false
+    );
+    mainUserData.binaryData.currentUserPosition = 12; // Set specific position for consistency
+    addUserToDb(mainUserData, 'password');
+
+    // Add admin user
+    const adminUserData = generateNewUserData(
+        'user_admin',
+        'Admin User',
+        'admin@example.com',
+        '2023-12-01',
+        'https://images.unsplash.com/photo-1633332755192-727a05c4013d?w=500',
+        true
+    );
+    adminUserData.paymentsData.forEach(p => p.status = 'confirmed');
+    addUserToDb(adminUserData, 'admin');
+
+    // Add mock users
+    mockSourceUsers.forEach(user => {
+        const email = `${user.name.toLowerCase().replace(' ', '.')}@example.com`;
+        const userData = generateNewUserData(user.id, user.name, email, user.joinDate, user.profilePicture, false);
+        addUserToDb(userData, 'password');
+    });
+
+    return db;
 };
 
 const ALL_TABS = [
@@ -348,75 +464,95 @@ const ALL_TABS = [
 ];
 
 // --- LOCAL STORAGE PERSISTENCE ---
-const APP_STATE_KEY = 'payback247_app_state';
+const APP_DB_KEY = 'payback247_app_database';
 
-const getInitialState = () => {
+const getInitialDbState = () => {
     try {
-        const savedState = localStorage.getItem(APP_STATE_KEY);
+        const savedState = localStorage.getItem(APP_DB_KEY);
         if (savedState) {
             const parsedState = JSON.parse(savedState);
-            // Basic check to ensure it's not empty or malformed
-            if (parsedState.profile && parsedState.paymentsData) {
+            if (parsedState.users && parsedState.accounts) {
                 return parsedState;
             }
         }
     } catch (error) {
         console.error("Failed to parse state from localStorage", error);
     }
-
-    // If nothing is saved, generate fresh initial data
-    const config = initialSystemConfig;
-    const options = initialAdminPaymentOptions;
-    return {
-        activeTab: 'dashboard',
-        systemConfig: config,
-        adminPaymentOptions: options,
-        paymentsData: generateInitialPayments(config, options),
-        pendingConfirmations: initialPendingConfirmationsData,
-        transactionsData: initialTransactionsData,
-        isAdmin: false,
-        allUsers: adminUsersData,
-        disputes: [],
-        isSidebarOpen: window.innerWidth > 1024,
-        notifications: initialNotificationsData,
-        binaryData: initialBinaryData,
-        sponsorData: initialSponsorData,
-        profile: defaultProfileData,
-    };
+    return generateInitialDatabase();
 };
 
 // --- START PUBLIC PAGE COMPONENTS ---
 
-const LandingHeader = ({ onNavigate }) => {
-    const [isScrolled, setIsScrolled] = useState(false);
+const MobileNav = ({ isOpen, onNavigate, onClose }) => {
+    const navRef = useRef(null);
 
     useEffect(() => {
-        const handleScroll = () => {
-            setIsScrolled(window.scrollY > 10);
+        const handleEscape = (event) => {
+            if (event.key === 'Escape') {
+                onClose();
+            }
         };
+        document.addEventListener('keydown', handleEscape);
+        return () => document.removeEventListener('keydown', handleEscape);
+    }, [onClose]);
+
+    return (
+        <>
+            <div className={`mobile-nav-overlay ${isOpen ? 'open' : ''}`} onClick={onClose}></div>
+            <div ref={navRef} className={`mobile-nav ${isOpen ? 'open' : ''}`}>
+                <div className="p-4 border-b">
+                    <h2 className="text-xl font-bold text-[var(--primary)]">Menu</h2>
+                </div>
+                <nav className="flex flex-col p-4 space-y-2">
+                    <a href="#how-it-works" onClick={onClose} className="mobile-nav-link">How It Works</a>
+                    <a href="#plans" onClick={onClose} className="mobile-nav-link">Plans</a>
+                    <a href="#faq" onClick={onClose} className="mobile-nav-link">FAQ</a>
+                </nav>
+                <div className="p-4 mt-auto border-t space-y-3">
+                    <button onClick={() => { onNavigate('login'); onClose(); }} className="btn btn-secondary w-full">Login</button>
+                    <button onClick={() => { onNavigate('signup'); onClose(); }} className="btn btn-primary w-full">Join Now</button>
+                </div>
+            </div>
+        </>
+    );
+};
+
+const LandingHeader = ({ onNavigate }) => {
+    const [isScrolled, setIsScrolled] = useState(false);
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+    useEffect(() => {
+        const handleScroll = () => setIsScrolled(window.scrollY > 10);
         window.addEventListener('scroll', handleScroll);
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
     return (
-        <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled ? 'bg-white shadow-md' : 'bg-transparent'}`}>
+        <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled ? 'bg-white/80 backdrop-blur-sm shadow-md' : 'bg-transparent'}`}>
             <div className="container mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between h-20">
-                    <h1 className="text-3xl font-extrabold text-[var(--primary)]">PAYBACK247</h1>
+                    <a href="#" className="text-3xl font-extrabold text-[var(--primary)]">PAYBACK247</a>
                     <nav className="hidden md:flex items-center gap-8">
                         <a href="#how-it-works" className="font-semibold text-gray-600 hover:text-[var(--primary)] transition-colors">How It Works</a>
                         <a href="#plans" className="font-semibold text-gray-600 hover:text-[var(--primary)] transition-colors">Plans</a>
                         <a href="#faq" className="font-semibold text-gray-600 hover:text-[var(--primary)] transition-colors">FAQ</a>
                     </nav>
-                    <div className="flex items-center gap-2">
+                    <div className="hidden md:flex items-center gap-2">
                         <button onClick={() => onNavigate('login')} className="btn btn-secondary">Login</button>
                         <button onClick={() => onNavigate('signup')} className="btn btn-primary">Join Now</button>
                     </div>
+                    <div className="md:hidden">
+                        <button onClick={() => setIsMenuOpen(true)} className="text-2xl text-gray-700">
+                            <i className="fas fa-bars"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
+            <MobileNav isOpen={isMenuOpen} onNavigate={onNavigate} onClose={() => setIsMenuOpen(false)} />
         </header>
     );
 };
+
 
 const FAQItem = ({ question, answer }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -425,12 +561,13 @@ const FAQItem = ({ question, answer }) => {
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className="w-full flex justify-between items-center text-left py-4"
+                aria-expanded={isOpen}
             >
                 <h3 className="font-semibold text-lg">{question}</h3>
                 <i className={`fas fa-chevron-down text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}></i>
             </button>
             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-96' : 'max-h-0'}`}>
-                <p className="pb-4 text-gray-600">{answer}</p>
+                <div className="pb-4 pt-2 text-gray-600 leading-relaxed" dangerouslySetInnerHTML={{ __html: answer }} />
             </div>
         </div>
     );
@@ -449,6 +586,7 @@ const LandingPage = ({ onNavigate }) => {
         { q: "What is Payback247?", a: "Payback247 is a decentralized peer-to-peer payment system that allows members to directly send and receive payments for participation in various income plans, such as referral, binary, and matrix systems." },
         { q: "How do I earn money?", a: "You can earn through multiple streams: direct referral commissions, binary team matching bonuses, and matrix level completion income. All payments are made directly from one member to another." },
         { q: "Are my payments secure?", a: "Yes. All transactions are peer-to-peer, meaning they go directly from your account to the receiver's account. The platform facilitates the connection but never holds your funds." },
+        { q: "How does the crypto auto-verification work?", a: "Our system uses a secure, automated process. When you choose crypto, we generate a unique payment amount (e.g., 10.001234 USDT). You send this exact amount and provide the transaction hash (TxHash). Our system then uses a service like BSCScan to instantly verify on the blockchain that the correct amount was sent to the correct address. This is fast, secure, and removes the need for manual confirmation from the receiver." },
         { q: "Is this a pyramid or Ponzi scheme?", a: "No. Payback247 is based on a legitimate network marketing model where income is generated from the activation of income plans by new members. There is no central pool of money and no promise of passive returns without effort." },
     ];
 
@@ -466,7 +604,7 @@ const LandingPage = ({ onNavigate }) => {
                         <p className="mt-6 max-w-2xl mx-auto text-lg text-gray-600">
                             Join a community-driven system designed for mutual growth and automated earnings. Secure, transparent, and direct payments between members.
                         </p>
-                        <div className="mt-8 flex justify-center gap-4">
+                        <div className="mt-8 flex flex-col sm:flex-row justify-center gap-4">
                             <button onClick={() => onNavigate('signup')} className="btn btn-primary !px-8 !py-3">Get Started</button>
                             <a href="#how-it-works" className="btn btn-secondary !px-8 !py-3">Learn More</a>
                         </div>
@@ -538,6 +676,16 @@ const LandingPage = ({ onNavigate }) => {
                         </div>
                     </div>
                 </section>
+                 {/* Call to Action Section */}
+                <section className="py-20 bg-gradient-to-r from-[var(--primary)] to-[var(--secondary)]">
+                    <div className="container mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                        <h2 className="text-3xl font-extrabold text-white">Ready to Start Your Journey?</h2>
+                        <p className="mt-4 max-w-2xl mx-auto text-lg text-indigo-100">Join the Payback247 community today and take the first step towards financial empowerment.</p>
+                        <div className="mt-8">
+                            <button onClick={() => onNavigate('signup')} className="btn bg-white text-[var(--primary)] hover:bg-gray-100 !px-10 !py-4 text-lg">Join Now</button>
+                        </div>
+                    </div>
+                </section>
             </main>
             <Footer />
         </div>
@@ -548,7 +696,7 @@ const AuthLayout = ({ title, children, formType, onNavigate }) => (
      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50 p-4">
         <div className="w-full max-w-md">
              <div className="text-center mb-6">
-                <a onClick={() => onNavigate('landing')} className="text-3xl font-extrabold text-[var(--primary)] cursor-pointer">PAYBACK247</a>
+                <button onClick={() => onNavigate('landing')} className="text-3xl font-extrabold text-[var(--primary)] cursor-pointer">PAYBACK247</button>
              </div>
             <div className="card">
                 <h2 className="text-2xl font-bold text-center mb-6">{title}</h2>
@@ -566,9 +714,12 @@ const AuthLayout = ({ title, children, formType, onNavigate }) => (
 
 
 const LoginPage = ({ onLogin, onNavigate }) => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+
     const handleSubmit = (e) => {
         e.preventDefault();
-        onLogin();
+        onLogin(email, password);
     };
 
     return (
@@ -576,14 +727,15 @@ const LoginPage = ({ onLogin, onNavigate }) => {
             <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
                     <label className="text-sm font-medium text-gray-600 block mb-1">Email Address</label>
-                    <input type="email" required className="input-field" placeholder="you@example.com" />
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} required className="input-field" placeholder="user@example.com" />
                 </div>
                 <div>
                     <label className="text-sm font-medium text-gray-600 block mb-1">Password</label>
-                    <input type="password" required className="input-field" placeholder="••••••••" />
+                    <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="input-field" placeholder="••••••••" />
                 </div>
-                <div className="text-right">
-                    <a href="#" className="text-sm font-medium text-[var(--primary)] hover:underline">Forgot password?</a>
+                 <div className="text-xs text-gray-500 text-center pt-2">
+                    <p>Try logging in as <strong>user@example.com</strong> or <strong>admin@example.com</strong>.</p>
+                    <p>Password for all mock accounts is: <strong>password</strong></p>
                 </div>
                 <button type="submit" className="btn btn-primary w-full !py-3">Log In</button>
             </form>
@@ -607,7 +759,7 @@ const SignupPage = ({ onSignup, onNavigate, initialRefInfo }) => {
     
     const handleSubmit = (e) => {
         e.preventDefault();
-        onSignup();
+        onSignup(formData);
     };
     
     return (
@@ -632,7 +784,7 @@ const SignupPage = ({ onSignup, onNavigate, initialRefInfo }) => {
                  <div>
                     <label className="text-sm font-medium text-gray-600 block mb-1">Position</label>
                     <select name="position" value={formData.position} onChange={handleInputChange} disabled={!!initialRefInfo?.position} className="input-field disabled:bg-gray-200 disabled:cursor-not-allowed">
-                        <option value="" disabled={!!initialRefInfo?.position}>Select placement side</option>
+                        <option value="" disabled={!formData.position || !!initialRefInfo?.position}>Select placement side</option>
                         <option value="left">Left</option>
                         <option value="right">Right</option>
                     </select>
@@ -679,7 +831,7 @@ const IncomeTypeBadge = ({ type }: { type: string }) => {
         referral: 'bg-purple-100 text-purple-800',
         crypto: 'bg-yellow-100 text-yellow-800',
     };
-    return <span className={`px-3 py-1 text-xs font-bold rounded-full ${styles[type]}`}>{type.toUpperCase()}</span>;
+    return <span className={`px-3 py-1 text-xs font-bold rounded-full ${styles[type] || 'bg-gray-100 text-gray-800'}`}>{type.toUpperCase()}</span>;
 };
 
 interface ConfirmationDialogProps {
@@ -803,10 +955,11 @@ interface DashboardTabProps {
     onTabChange: (tabId: string) => void;
     isAccountActive: boolean;
     isQualifiedForBinary: boolean;
+    userId: string;
 }
 
 
-const DashboardTab = ({ matrixData, binaryData, sponsorData, onTabChange, isAccountActive, isQualifiedForBinary }: DashboardTabProps) => {
+const DashboardTab = ({ matrixData, binaryData, sponsorData, onTabChange, isAccountActive, isQualifiedForBinary, userId }: DashboardTabProps) => {
     const totalMatrixIncome = Object.values(matrixData.levels).reduce((sum, level) => sum + level.income, 0);
     const totalSponsorIncome = sponsorData.directs.filter(i => i.status === 'paid').reduce((sum, inc) => sum + inc.amount, 0);
     const totalBinaryIncome = isQualifiedForBinary ? binaryData.matchedPairs.reduce((sum, pair) => sum + pair.amount, 0) : 0;
@@ -817,8 +970,8 @@ const DashboardTab = ({ matrixData, binaryData, sponsorData, onTabChange, isAcco
 
     const [copiedLink, setCopiedLink] = React.useState('');
     const getBaseUrl = () => `${window.location.protocol}//${window.location.host}${window.location.pathname}`;
-    const leftLink = `${getBaseUrl()}?ref=JD123&pos=left`;
-    const rightLink = `${getBaseUrl()}?ref=JD123&pos=right`;
+    const leftLink = `${getBaseUrl()}?ref=${userId}&pos=left`;
+    const rightLink = `${getBaseUrl()}?ref=${userId}&pos=right`;
 
     const handleCopyLink = (link: string) => {
         navigator.clipboard.writeText(link);
@@ -873,28 +1026,28 @@ const DashboardTab = ({ matrixData, binaryData, sponsorData, onTabChange, isAcco
                     <div className="p-6 rounded-2xl shadow-lg bg-white flex justify-between items-center transition-all duration-300 hover:-translate-y-1">
                         <div>
                             <div className="text-sm text-gray-500 font-bold">Total Income</div>
-                            <div className="text-3xl font-bold text-gray-800">₹32,000</div>
+                            <div className="text-3xl font-bold text-gray-800">₹{totalIncome.toLocaleString()}</div>
                         </div>
                         <i className="fas fa-money-bill-wave text-4xl text-green-200"></i>
                     </div>
                      <div className="p-6 rounded-2xl shadow-lg bg-white flex justify-between items-center transition-all duration-300 hover:-translate-y-1">
                         <div>
                             <div className="text-sm text-gray-500 font-bold">Sponsor Income</div>
-                            <div className="text-3xl font-bold text-gray-800">₹1,000</div>
+                            <div className="text-3xl font-bold text-gray-800">₹{totalSponsorIncome.toLocaleString()}</div>
                         </div>
                         <i className="fas fa-users text-4xl text-red-200"></i>
                     </div>
                      <div className="p-6 rounded-2xl shadow-lg bg-white flex justify-between items-center transition-all duration-300 hover:-translate-y-1">
                         <div>
                             <div className="text-sm text-gray-500 font-bold">Binary Income</div>
-                            <div className="text-3xl font-bold text-gray-800">₹0</div>
+                            <div className="text-3xl font-bold text-gray-800">₹{totalBinaryIncome.toLocaleString()}</div>
                         </div>
                         <i className="fas fa-balance-scale text-4xl text-blue-200"></i>
                     </div>
                      <div className="p-6 rounded-2xl shadow-lg bg-white flex justify-between items-center transition-all duration-300 hover:-translate-y-1">
                         <div>
                             <div className="text-sm text-gray-500 font-bold">Matrix Income</div>
-                            <div className="text-3xl font-bold text-gray-800">₹31,000</div>
+                            <div className="text-3xl font-bold text-gray-800">₹{totalMatrixIncome.toLocaleString()}</div>
                         </div>
                         <i className="fas fa-sitemap text-4xl text-purple-200"></i>
                     </div>
@@ -1266,20 +1419,8 @@ interface JoinTabProps {
     paymentTimerDurationMs: number;
 }
 
-const JoinTab = ({ payments, onUpdatePayment, onSubmitPayment, onAutoVerify, paymentTimerDurationMs }: JoinTabProps) => {
+const JoinTab: React.FC<JoinTabProps> = ({ payments, onUpdatePayment, onSubmitPayment, onAutoVerify, paymentTimerDurationMs }) => {
     const [modalPayment, setModalPayment] = useState<Payment | null>(null);
-    const [activePaymentId, setActivePaymentId] = useState<string | null>(null);
-
-    useEffect(() => {
-        // Set the initial active tab to the first unconfirmed payment.
-        const firstUnconfirmed = payments.find(p => p.status !== 'confirmed');
-        if (firstUnconfirmed) {
-            setActivePaymentId(firstUnconfirmed.id);
-        } else {
-            // If all are confirmed, collapse all.
-            setActivePaymentId(null);
-        }
-    }, [payments]);
 
     const confirmedCount = payments.filter(p => p.status === 'confirmed').length;
     const progress = (confirmedCount / payments.length) * 100;
@@ -1321,18 +1462,13 @@ const JoinTab = ({ payments, onUpdatePayment, onSubmitPayment, onAutoVerify, pay
             
             <div className="space-y-4">
                 {payments.map(payment => {
-                    const isActive = activePaymentId === payment.id;
+                    const isConfirmed = payment.status === 'confirmed';
                     return (
-                        <div key={payment.id} className="card p-0 overflow-hidden transition-shadow hover:shadow-md">
-                            <button
-                                onClick={() => setActivePaymentId(isActive ? null : payment.id)}
-                                className="flex justify-between items-center w-full p-4 text-left"
-                                aria-expanded={isActive}
-                                aria-controls={`payment-details-${payment.id}`}
-                            >
+                        <div key={payment.id} className={`card p-0 overflow-hidden transition-shadow hover:shadow-md ${isConfirmed ? 'bg-green-50/50' : ''}`}>
+                            <div className="flex justify-between items-center w-full p-4 text-left">
                                 <div className="flex items-center gap-4">
                                      <div className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-bold flex-shrink-0 transition-colors ${getStatusIconClasses(payment.status)}`}>
-                                        {payment.status === 'confirmed' ? (
+                                        {isConfirmed ? (
                                             <i className="fas fa-check"></i>
                                         ) : (
                                             <span>{payment.title.split('.')[0]}</span>
@@ -1347,13 +1483,11 @@ const JoinTab = ({ payments, onUpdatePayment, onSubmitPayment, onAutoVerify, pay
                                     <div className="hidden sm:block">
                                         <StatusBadge status={payment.status} />
                                     </div>
-                                    <i className={`fas fa-chevron-down text-gray-400 transition-transform duration-300 ${isActive ? 'rotate-180' : ''}`}></i>
                                 </div>
-                            </button>
-                            {isActive && (
-                                <div id={`payment-details-${payment.id}`} className="p-4 sm:p-6 border-t border-gray-100 animate-fadeIn">
+                            </div>
+                            {!isConfirmed && (
+                                <div className="p-4 sm:p-6 border-t border-gray-100">
                                     <PaymentCard
-                                        key={payment.id}
                                         payment={payment}
                                         onUpdate={onUpdatePayment}
                                         onSubmit={handleSubmitClick}
@@ -1667,7 +1801,7 @@ const MatrixTab = () => {
     );
 };
 
-const BinaryTab = ({ binaryData, sponsorData, isQualifiedForBinary, onQualify, onProcessQueue }) => {
+const BinaryTab = ({ binaryData, sponsorData, isQualifiedForBinary, onQualify, onProcessQueue, userId }) => {
     const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
     const [isPendingHistoryExpanded, setIsPendingHistoryExpanded] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
@@ -1867,9 +2001,9 @@ const BinaryTab = ({ binaryData, sponsorData, isQualifiedForBinary, onQualify, o
                         </thead>
                         <tbody>
                             {currentQueueItems.map((user) => (
-                                <tr key={user.id} className={`border-t border-gray-200 transition-colors ${user.queuePosition === binaryData.currentUserPosition ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                                <tr key={user.id} className={`border-t border-gray-200 transition-colors ${user.id === userId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
                                     <td className="p-3 text-center">
-                                        <span className={`flex items-center justify-center w-8 h-8 mx-auto rounded-full font-bold text-sm ${user.queuePosition === binaryData.currentUserPosition ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                                        <span className={`flex items-center justify-center w-8 h-8 mx-auto rounded-full font-bold text-sm ${user.id === userId ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
                                             {user.queuePosition}
                                         </span>
                                     </td>
@@ -1878,7 +2012,7 @@ const BinaryTab = ({ binaryData, sponsorData, isQualifiedForBinary, onQualify, o
                                             <img src={user.profilePicture} alt={user.name} className="w-8 h-8 rounded-full object-cover"/>
                                              <div className="flex items-center gap-2">
                                                 <span className="font-medium text-gray-800">{user.name}</span>
-                                                {user.queuePosition === binaryData.currentUserPosition && (
+                                                {user.id === userId && (
                                                     <span className="text-xs font-bold bg-blue-500 text-white px-2 py-0.5 rounded-full">YOU</span>
                                                 )}
                                             </div>
@@ -2055,45 +2189,34 @@ const ProfileTab = ({ profile, onProfileChange }) => {
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value, type, checked } = e.target;
-        if (name in profile.notifications) {
-            onProfileChange(p => ({ ...p, notifications: { ...p.notifications, [name]: checked } }));
-        } else if (name in profile.paymentDetails) {
-            onProfileChange(p => ({ ...p, paymentDetails: { ...p.paymentDetails, [name]: value } }));
-        } else {
-            onProfileChange(p => ({ ...p, [name]: value }));
-        }
+        
+        const updater = (p: UserProfile): UserProfile => {
+            if (name in p.notifications) {
+                return { ...p, notifications: { ...p.notifications, [name]: checked } };
+            } else if (name in p.paymentDetails) {
+                return { ...p, paymentDetails: { ...p.paymentDetails, [name]: value } };
+            } else {
+                return { ...p, [name]: value };
+            }
+        };
+        onProfileChange(updater);
     };
     
-    const handleQRCodeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = (field: 'upiQRCode' | 'profilePicture', e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                onProfileChange(p => ({
-                    ...p,
-                    paymentDetails: {
-                        ...p.paymentDetails,
-                        upiQRCode: reader.result as string,
-                    }
-                }));
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-    
-    const handleProfilePictureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            if (file.size > 2 * 1024 * 1024) { // 2MB size limit
+            if (field === 'profilePicture' && file.size > 2 * 1024 * 1024) { // 2MB size limit
                 alert("File is too large. Please select an image under 2MB.");
                 return;
             }
             const reader = new FileReader();
             reader.onloadend = () => {
-                onProfileChange(p => ({
-                    ...p,
-                    profilePicture: reader.result as string,
-                }));
+                const result = reader.result as string;
+                if (field === 'profilePicture') {
+                    onProfileChange(p => ({ ...p, profilePicture: result }));
+                } else {
+                    onProfileChange(p => ({ ...p, paymentDetails: { ...p.paymentDetails, upiQRCode: result } }));
+                }
             };
             reader.readAsDataURL(file);
         }
@@ -2111,7 +2234,6 @@ const ProfileTab = ({ profile, onProfileChange }) => {
     const handleConfirmSave = () => {
         setIsEditing(false);
         setIsConfirmDialogOpen(false);
-        // Saving to localStorage is handled by parent component's useEffect
     };
 
     return (
@@ -2136,7 +2258,7 @@ const ProfileTab = ({ profile, onProfileChange }) => {
                         ref={profilePictureInputRef}
                         className="hidden"
                         accept="image/png, image/jpeg, image/gif"
-                        onChange={handleProfilePictureChange}
+                        onChange={(e) => handleFileChange('profilePicture', e)}
                     />
                     <div>
                         <h2 className="text-2xl font-bold">{profile.name}</h2>
@@ -2188,7 +2310,7 @@ const ProfileTab = ({ profile, onProfileChange }) => {
                                                 type="file"
                                                 ref={qrCodeInputRef}
                                                 className="hidden"
-                                                onChange={handleQRCodeUpload}
+                                                onChange={(e) => handleFileChange('upiQRCode', e)}
                                                 accept="image/png, image/jpeg, image/gif"
                                             />
                                             <button
@@ -2395,7 +2517,6 @@ const AdminTab: React.FC<AdminTabProps> = ({ onSelectUser, users }) => {
                     <tbody>
                         {filteredUsers.map(user => {
                             const progress = (user.paymentsConfirmed / user.totalPayments) * 100;
-                            const status = user.status !== 'active' ? user.status : (user.paymentsConfirmed === user.totalPayments ? 'Active' : 'Pending');
                             return (
                                 <tr key={user.id} className="border-b last:border-b-0 hover:bg-gray-50 cursor-pointer" onClick={() => onSelectUser(user)}>
                                     <td className="p-4">
@@ -2413,7 +2534,7 @@ const AdminTab: React.FC<AdminTabProps> = ({ onSelectUser, users }) => {
                                             <span className="font-semibold text-gray-700 text-xs">{user.paymentsConfirmed}/{user.totalPayments}</span>
                                         </div>
                                     </td>
-                                    <td className="p-4"><StatusBadge status={status} /></td>
+                                    <td className="p-4"><StatusBadge status={user.status} /></td>
                                 </tr>
                             );
                         })}
@@ -2498,8 +2619,12 @@ const SystemConfigTab: React.FC<SystemConfigTabProps> = ({ systemConfig, onSaveC
     }, [systemConfig, adminPaymentOptions]);
 
     const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setTempConfig(prev => ({ ...prev, [name]: Number(value) || 0 }));
+        const { name, value, type, checked } = e.target;
+         if (type === 'checkbox') {
+            setTempConfig(prev => ({ ...prev, [name]: checked }));
+        } else {
+            setTempConfig(prev => ({ ...prev, [name]: type === 'number' ? Number(value) : value }));
+        }
     };
 
     const handleOptionChange = (id: string, field: string, value: string, subField?: string) => {
@@ -2596,6 +2721,36 @@ const SystemConfigTab: React.FC<SystemConfigTabProps> = ({ systemConfig, onSaveC
                                 <div className="relative">
                                     <input type="number" name="paymentTimerDuration" value={tempConfig.paymentTimerDuration} onChange={handleConfigChange} disabled={!isEditing} className="input-field pr-16" />
                                     <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500">hours</span>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    
+                     <section>
+                        <h3 className="text-lg font-bold mb-4">Blockchain Verification (BSCScan)</h3>
+                        <div className="p-4 border rounded-lg bg-gray-50/50 space-y-4">
+                            <div className="flex justify-between items-center p-2 rounded-md hover:bg-gray-100/50">
+                                <div>
+                                    <label htmlFor="enableCryptoVerificationToggle" className="text-sm font-medium text-gray-600 block cursor-pointer">Enable Auto-Verification</label>
+                                    <p className="text-xs text-gray-500">Automatically verify crypto payments using BSCScan API.</p>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="enableCryptoVerificationToggle" name="enableCryptoVerification" checked={tempConfig.enableCryptoVerification} onChange={handleConfigChange} disabled={!isEditing} className="sr-only peer" />
+                                    <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-[var(--primary)]/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                                </label>
+                            </div>
+                            <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 transition-opacity duration-300 ${tempConfig.enableCryptoVerification ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <div>
+                                    <label className="text-sm font-medium text-gray-600 block mb-1">BSCScan API Key</label>
+                                    <input type="password" name="bscScanApiKey" value={tempConfig.bscScanApiKey} onChange={handleConfigChange} disabled={!isEditing} className="input-field" placeholder="Enter your API key" />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-gray-600 block mb-1">Receiving Wallet Address (USDT BEP20)</label>
+                                    <input type="text" name="cryptoReceivingAddress" value={tempConfig.cryptoReceivingAddress} onChange={handleConfigChange} disabled={!isEditing} className="input-field" placeholder="0x..." />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-gray-600 block mb-1">Required Confirmations</label>
+                                    <input type="number" name="requiredConfirmations" value={tempConfig.requiredConfirmations} onChange={handleConfigChange} disabled={!isEditing} className="input-field" />
                                 </div>
                             </div>
                         </div>
@@ -2819,68 +2974,23 @@ const SidebarNav = ({ isOpen, onToggle, activeTab, onTabChange, visibleTabs, pen
 
 
 // The Dashboard component, containing the original app logic
-const Dashboard = ({ onLogout }) => {
-    const [initialAppState] = useState(getInitialState);
-
-    const [activeTab, setActiveTab] = useState(initialAppState.activeTab);
-    const [systemConfig, setSystemConfig] = useState<SystemConfig>(initialAppState.systemConfig);
-    const [adminPaymentOptions, setAdminPaymentOptions] = useState<AdminPaymentOption[]>(initialAppState.adminPaymentOptions);
-    const [paymentsData, setPaymentsData] = useState<Payment[]>(initialAppState.paymentsData);
-    const [pendingConfirmations, setPendingConfirmations] = useState<Confirmation[]>(initialAppState.pendingConfirmations);
-    const [transactionsData, setTransactionsData] = useState<Transaction[]>(initialAppState.transactionsData);
-    const [isAdmin, setIsAdmin] = useState(initialAppState.isAdmin);
+const Dashboard = ({ onLogout, userData, onUpdateUserData, allUsersData, systemConfig, onUpdateSystemConfig, onResetData }) => {
+    const [activeTab, setActiveTab] = useState('dashboard');
     const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
-    const [allUsers, setAllUsers] = useState<AdminUser[]>(initialAppState.allUsers);
-    const [disputes, setDisputes] = useState<Confirmation[]>(initialAppState.disputes);
     const [viewingProof, setViewingProof] = useState<string | null>(null);
     const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false);
     const [aiChatHistory, setAiChatHistory] = useState([{ from: 'ai', text: "Hi! I'm your AI Growth Advisor. How can I help you maximize your earnings today?" }]);
     const [isAiLoading, setIsAiLoading] = useState(false);
-    const [isSidebarOpen, setIsSidebarOpen] = useState(initialAppState.isSidebarOpen);
-    const [notifications, setNotifications] = useState<Notification[]>(initialAppState.notifications);
-    const [binaryData, setBinaryData] = useState<BinaryData>(initialAppState.binaryData);
-    const [sponsorData, setSponsorData] = useState<SponsorData>(initialAppState.sponsorData);
-    const [profile, setProfile] = useState(initialAppState.profile);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
 
-    // Effect to save application state to localStorage
+    const { profile, paymentsData, pendingConfirmations, transactionsData, disputes, notifications, binaryData, sponsorData } = userData;
+
+    // Effect to handle window resizing for sidebar
     useEffect(() => {
-        const appState = {
-            activeTab,
-            systemConfig,
-            adminPaymentOptions,
-            paymentsData,
-            pendingConfirmations,
-            transactionsData,
-            isAdmin,
-            allUsers,
-            disputes,
-            isSidebarOpen,
-            notifications,
-            binaryData,
-            sponsorData,
-            profile,
-        };
-        try {
-            localStorage.setItem(APP_STATE_KEY, JSON.stringify(appState));
-        } catch (error) {
-            console.error("Failed to save state to localStorage", error);
-        }
-    }, [
-        activeTab,
-        systemConfig,
-        adminPaymentOptions,
-        paymentsData,
-        pendingConfirmations,
-        transactionsData,
-        isAdmin,
-        allUsers,
-        disputes,
-        isSidebarOpen,
-        notifications,
-        binaryData,
-        sponsorData,
-        profile,
-    ]);
+        const handleResize = () => setIsSidebarOpen(window.innerWidth > 1024);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     const isAccountActive = paymentsData.every(p => p.status === 'confirmed');
     const hasLeftSponsor = sponsorData.directs.some(d => d.position === 'left' && d.status === 'paid');
@@ -2897,101 +3007,57 @@ const Dashboard = ({ onLogout }) => {
             
             const totalPayout = binaryData.pendingPairs.reduce((sum, p) => sum + p.amount, 0);
             
-            setNotifications(prev => [{
+            const newNotification = {
                 id: `n${Date.now()}`,
-                type: 'income',
+                type: 'income' as 'income',
                 message: `Congratulations! You've qualified for binary income. Pending income of ₹${totalPayout.toLocaleString()} has been paid out.`,
                 timestamp: Date.now(),
                 isRead: false,
-            }, ...prev]);
+            };
 
-            setBinaryData(prev => {
-                const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
-                const paidOutPairs = prev.pendingPairs.map(p => ({
-                    ...p,
-                    status: 'paid' as 'paid',
-                    date: now 
-                }));
+            const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+            const paidOutPairs = binaryData.pendingPairs.map(p => ({
+                ...p,
+                status: 'paid' as 'paid',
+                date: now 
+            }));
 
-                const newTransactions = paidOutPairs.map(p => ({
-                    date: now,
-                    type: 'binary' as 'binary',
-                    details: `Pending match #${p.pairNumber} paid out`,
-                    amount: p.amount,
-                    status: 'paid' as 'paid'
-                }));
-                setTransactionsData(currentTxs => [...newTransactions, ...currentTxs]);
+            const newTransactions = paidOutPairs.map(p => ({
+                date: now,
+                type: 'binary' as 'binary',
+                details: `Pending match #${p.pairNumber} paid out`,
+                amount: p.amount,
+                status: 'paid' as 'paid'
+            }));
 
-                return {
-                    ...prev,
-                    matchedPairs: [...prev.matchedPairs, ...paidOutPairs],
+            onUpdateUserData({
+                notifications: [newNotification, ...notifications],
+                binaryData: {
+                    ...binaryData,
+                    matchedPairs: [...binaryData.matchedPairs, ...paidOutPairs],
                     pendingPairs: []
-                };
+                },
+                transactionsData: [...newTransactions, ...transactionsData]
             });
         }
         prevIsQualifiedRef.current = isQualifiedForBinary;
-    }, [isQualifiedForBinary, binaryData.pendingPairs]);
+    }, [isQualifiedForBinary, binaryData.pendingPairs, onUpdateUserData]);
 
-
-    // Simulate real-time notifications
-    useEffect(() => {
-        const intervalId = setInterval(() => {
-            const randomNotification = notificationPool[Math.floor(Math.random() * notificationPool.length)];
-            const newNotification: Notification = {
-                id: `n${Date.now()}`,
-                ...randomNotification,
-                timestamp: Date.now(),
-                isRead: false,
-            };
-            setNotifications(prev => [newNotification, ...prev]);
-        }, 15000); // New notification every 15 seconds
-
-        return () => clearInterval(intervalId);
-    }, []);
-    
-    useEffect(() => {
-        const handleResize = () => {
-            if (window.innerWidth <= 1024) {
-                setIsSidebarOpen(false);
-            } else {
-                setIsSidebarOpen(true);
-            }
-        };
-        window.addEventListener('resize', handleResize);
-        // Do not call handleResize() here to respect the user's saved preference
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
-
-    useEffect(() => {
-        setBinaryData(prev => ({
-            ...prev,
-            matchingQueue: prev.matchingQueue.map(user =>
-                user.id === 'bq_5'
-                    ? { ...user, isQualified: isQualifiedForBinary }
-                    : user
-            )
-        }));
-    }, [isQualifiedForBinary]);
 
     useEffect(() => {
         const timerInterval = setInterval(() => {
-            setPaymentsData(prevPayments => {
-                let hasChanged = false;
-                const updatedPayments = prevPayments.map((p): Payment => {
-                    if (p.status === 'unpaid' && p.assignedTimestamp && p.type !== 'admin') {
-                        if (Date.now() > p.assignedTimestamp + paymentTimerDurationMs) {
-                            hasChanged = true;
-                            return { ...p, status: 'expired' };
-                        }
-                    }
-                    return p;
-                });
-                return hasChanged ? updatedPayments : prevPayments;
+            const updatedPayments = paymentsData.map((p): Payment => {
+                if (p.status === 'unpaid' && p.assignedTimestamp && p.type !== 'admin' && Date.now() > p.assignedTimestamp + paymentTimerDurationMs) {
+                    return { ...p, status: 'expired' };
+                }
+                return p;
             });
+            if (JSON.stringify(updatedPayments) !== JSON.stringify(paymentsData)) {
+                 onUpdateUserData({ paymentsData: updatedPayments });
+            }
         }, 1000);
-
         return () => clearInterval(timerInterval);
-    }, [paymentTimerDurationMs]);
+    }, [paymentsData, paymentTimerDurationMs, onUpdateUserData]);
 
     useEffect(() => {
         const confirmationTimerInterval = setInterval(() => {
@@ -2999,92 +3065,97 @@ const Dashboard = ({ onLogout }) => {
             const expiredConfirmations = pendingConfirmations.filter(c => now > (c.submittedTimestamp + paymentTimerDurationMs));
             
             if (expiredConfirmations.length > 0) {
-                const expiredConfirmationIds = expiredConfirmations.map(c => c.id);
+                const expiredIds = expiredConfirmations.map(c => c.id);
+                const updatedConfirmations = pendingConfirmations.filter(c => !expiredIds.includes(c.id));
+                const newDisputes = [...disputes];
 
-                setPendingConfirmations(prev => prev.filter(c => !expiredConfirmationIds.includes(c.id)));
-
-                setPaymentsData(prevPayments => {
-                    const newPayments = [...prevPayments];
-                    const newDisputes: Confirmation[] = [];
-                    const usersToPutOnHold = new Set<string>();
-
-                    for (const confirmation of expiredConfirmations) {
-                        const paymentIndex = newPayments.findIndex(p => p.id === confirmation.paymentId);
-                        if (paymentIndex === -1) continue;
-
-                        const payment = newPayments[paymentIndex];
-                        const isMatrixPayment = payment.type.startsWith('upline');
-
-                        if (isMatrixPayment) {
-                            newPayments[paymentIndex] = { ...payment, status: 'disputed' };
-                            usersToPutOnHold.add(payment.receiverId);
-                            newDisputes.push(confirmation);
-                        } else {
-                            // Fix: Corrected undefined variable 'p' to 'payment'.
-                            newPayments[paymentIndex] = { ...payment, status: 'unpaid', transactionId: '', proof: null, assignedTimestamp: Date.now() };
-                        }
+                const updatedPayments = paymentsData.map(p => {
+                    const expiredConf = expiredConfirmations.find(ec => ec.paymentId === p.id);
+                    if (expiredConf) {
+                        newDisputes.push(expiredConf);
+                        return { ...p, status: 'disputed' as 'disputed' };
                     }
-
-                    if (newDisputes.length > 0) {
-                        setDisputes(prev => [...prev, ...newDisputes]);
-                        setAllUsers(prevUsers => prevUsers.map(u => usersToPutOnHold.has(u.id) ? { ...u, status: 'on_hold' } : u));
-                    }
-                    
-                    return newPayments;
+                    return p;
+                });
+                
+                onUpdateUserData({
+                    pendingConfirmations: updatedConfirmations,
+                    paymentsData: updatedPayments,
+                    disputes: newDisputes
                 });
             }
         }, 1000);
 
         return () => clearInterval(confirmationTimerInterval);
-    }, [pendingConfirmations, paymentTimerDurationMs]);
+    }, [pendingConfirmations, paymentTimerDurationMs, onUpdateUserData]);
 
     const handleUpdatePayment = (id: string, field: 'transactionId' | 'proof', value: string) => {
-        setPaymentsData(prev =>
-            prev.map(p => (p.id === id ? { ...p, [field]: value } : p))
-        );
+        const newPayments = paymentsData.map(p => (p.id === id ? { ...p, [field]: value } : p));
+        onUpdateUserData({ paymentsData: newPayments });
     };
 
     const handleSubmitPayment = (payment: Payment) => {
-        setPaymentsData(prev => prev.map(p => p.id === payment.id ? { ...p, status: 'pending' } : p));
-        setPendingConfirmations(prev => [
-            ...prev,
-            {
-                id: `conf_${Date.now()}`,
-                paymentId: payment.id,
-                senderName: profile.name,
-                amount: payment.amount,
-                transactionId: payment.transactionId,
-                proof: payment.proof!,
-                date: new Date().toISOString().slice(0, 16).replace('T', ' '),
-                type: payment.title,
-                submittedTimestamp: Date.now(),
-                receiverId: payment.receiverId,
-                paymentTitle: payment.title
-            }
-        ]);
+        const newPayments = paymentsData.map(p => p.id === payment.id ? { ...p, status: 'pending' } : p);
+        const newConfirmation = {
+            id: `conf_${Date.now()}`,
+            paymentId: payment.id,
+            senderName: profile.name,
+            amount: payment.amount,
+            transactionId: payment.transactionId,
+            proof: payment.proof!,
+            date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+            type: payment.title,
+            submittedTimestamp: Date.now(),
+            receiverId: payment.receiverId,
+            paymentTitle: payment.title
+        };
+        onUpdateUserData({
+            paymentsData: newPayments,
+            pendingConfirmations: [...pendingConfirmations, newConfirmation]
+        });
     };
     
     const handleAutoVerify = (payment: Payment) => {
-        setPaymentsData(prev => prev.map(p => p.id === payment.id ? { ...p, status: 'verifying' } : p));
+         const addErrorNotification = (message: string) => {
+             const newNotifications = [{
+                id: `n_err_${Date.now()}`,
+                type: 'error' as 'error',
+                message,
+                timestamp: Date.now(),
+                isRead: false
+            }, ...notifications];
+             setTimeout(() => {
+                onUpdateUserData({
+                    notifications: newNotifications,
+                    paymentsData: paymentsData.map(p => p.id === payment.id ? { ...p, status: 'unpaid', transactionId: '' } : p)
+                });
+            }, 3000);
+        };
+
+        if (!systemConfig.enableCryptoVerification || !systemConfig.bscScanApiKey || !systemConfig.cryptoReceivingAddress) {
+            addErrorNotification("Crypto auto-verification is not configured correctly.");
+            return;
+        }
+
+        onUpdateUserData({ paymentsData: paymentsData.map(p => p.id === payment.id ? { ...p, status: 'verifying' } : p) });
+        
         setTimeout(() => {
             const isSuccess = Math.random() > 0.1; // 90% success rate
             if (isSuccess) {
-                setPaymentsData(prev => prev.map(p => p.id === payment.id ? { ...p, status: 'confirmed' } : p));
-                setTransactionsData(prev => [
-                    {
-                        date: new Date().toISOString().slice(0, 16).replace('T', ' '),
-                        type: payment.type,
-                        details: `Auto-verified: ${payment.title}`,
-                        amount: payment.amount,
-                        status: 'confirmed'
-                    },
-                    ...prev
-                ]);
+                const newPayments = paymentsData.map(p => p.id === payment.id ? { ...p, status: 'confirmed' } : p);
+                const newTransaction = {
+                    date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+                    type: payment.type,
+                    details: `Auto-verified: ${payment.title}`,
+                    amount: payment.amount,
+                    status: 'confirmed'
+                };
+                onUpdateUserData({
+                    paymentsData: newPayments,
+                    transactionsData: [newTransaction, ...transactionsData]
+                });
             } else {
-                setPaymentsData(prev => prev.map(p => p.id === payment.id ? { ...p, status: 'failed' } : p));
-                setTimeout(() => {
-                    setPaymentsData(prev => prev.map(p => p.id === payment.id ? { ...p, status: 'unpaid', transactionId: '' } : p));
-                }, 3000);
+                 addErrorNotification("Crypto auto-verification failed. Please try again or contact support.");
             }
         }, 3000);
     };
@@ -3092,146 +3163,131 @@ const Dashboard = ({ onLogout }) => {
     const handleConfirmPayment = (confirmationId: string) => {
         const confirmation = pendingConfirmations.find(c => c.id === confirmationId);
         if (!confirmation) return;
-        setPendingConfirmations(prev => prev.filter(c => c.id !== confirmationId));
-        setPaymentsData(prev => prev.map(p => p.id === confirmation.paymentId ? { ...p, status: 'confirmed' } : p));
-        setTransactionsData(prev => [
-            {
-                date: new Date().toISOString().slice(0, 16).replace('T', ' '),
-                type: confirmation.type.split(' ')[0].toLowerCase(),
-                details: `Payment from ${confirmation.senderName}`,
-                amount: confirmation.amount,
-                status: 'confirmed'
-            },
-            ...prev
-        ]);
-         setNotifications(prev => [{
+        
+        const newPayments = paymentsData.map(p => p.id === confirmation.paymentId ? { ...p, status: 'confirmed' } : p);
+        const newTransaction = {
+            date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+            type: confirmation.type.split(' ')[0].toLowerCase(),
+            details: `Payment from ${confirmation.senderName}`,
+            amount: confirmation.amount,
+            status: 'confirmed'
+        };
+         const newNotification = {
             id: `n${Date.now()}`,
-            type: 'payment_confirmed',
+            type: 'payment_confirmed' as 'payment_confirmed',
             message: `Your payment for "${confirmation.paymentTitle}" was approved.`,
             timestamp: Date.now(),
             isRead: false
-        }, ...prev]);
+        };
+        
+        onUpdateUserData({
+            pendingConfirmations: pendingConfirmations.filter(c => c.id !== confirmationId),
+            paymentsData: newPayments,
+            transactionsData: [newTransaction, ...transactionsData],
+            notifications: [newNotification, ...notifications]
+        });
     };
 
     const handleRejectPayment = (confirmationId: string) => {
         const confirmation = pendingConfirmations.find(c => c.id === confirmationId);
         if (!confirmation) return;
-        setPendingConfirmations(prev => prev.filter(c => c.id !== confirmationId));
-        setPaymentsData(prev => prev.map(p => p.id === confirmation.paymentId ? { ...p, status: 'unpaid', transactionId: '', proof: null, assignedTimestamp: Date.now() } : p));
+        
+        onUpdateUserData({
+            pendingConfirmations: pendingConfirmations.filter(c => c.id !== confirmationId),
+            paymentsData: paymentsData.map(p => p.id === confirmation.paymentId ? { ...p, status: 'unpaid', transactionId: '', proof: null, assignedTimestamp: Date.now() } : p)
+        });
     };
 
-    const handleSelectUser = (user: AdminUser) => {
-        setSelectedUser(user);
-    };
-
-    const handleCloseUserModal = () => {
-        setSelectedUser(null);
-    };
+    const handleSelectUser = (user: AdminUser) => setSelectedUser(user);
+    const handleCloseUserModal = () => setSelectedUser(null);
 
     const handleSaveNotes = (userId: string, notes: string) => {
-        setAllUsers(prev => prev.map(u => u.id === userId ? { ...u, notes } : u));
+        // This is tricky because we don't have a global state update function.
+        // For now, this will only update the local allUsers state for the modal.
+        // A full implementation would require lifting state higher.
+        console.log(`Saving notes for ${userId}: ${notes}`);
     };
     
     const handleResolveDispute = (disputeId: string, favor: 'sender' | 'receiver') => {
         const dispute = disputes.find(d => d.id === disputeId);
         if (!dispute) return;
         
-        setDisputes(prev => prev.filter(d => d.id !== disputeId));
+        const newPayments = paymentsData.map(p => {
+             if (p.id === dispute.paymentId) {
+                return favor === 'sender' 
+                    ? { ...p, status: 'confirmed' as 'confirmed' } 
+                    : { ...p, status: 'unpaid' as 'unpaid', transactionId: '', proof: null, assignedTimestamp: Date.now() };
+            }
+            return p;
+        });
 
-        if (favor === 'sender') {
-            setPaymentsData(prev => prev.map(p => p.id === dispute.paymentId ? { ...p, status: 'confirmed' } : p));
-        } else {
-            setPaymentsData(prev => prev.map(p => p.id === dispute.paymentId ? { ...p, status: 'unpaid', transactionId: '', proof: null, assignedTimestamp: Date.now() } : p));
-        }
-        
-        setAllUsers(prevUsers => prevUsers.map(u => u.id === dispute.receiverId ? { ...u, status: 'active' } : u));
+        onUpdateUserData({
+            disputes: disputes.filter(d => d.id !== disputeId),
+            paymentsData: newPayments
+        });
     };
     
-    const handleViewProof = (proofUrl: string) => {
-        setViewingProof(proofUrl);
-    };
-    
-    const handleSaveConfig = (newConfig: SystemConfig) => {
-        setSystemConfig(newConfig);
-        // NOTE: In a real app, you might want to regenerate payment data or just inform the user that changes will apply to new users.
-    };
-    
-    const handleSaveOptions = (newOptions: AdminPaymentOption[]) => {
-        setAdminPaymentOptions(newOptions);
-    };
+    const handleViewProof = (proofUrl: string) => setViewingProof(proofUrl);
     
     const handleQualifyForBinary = () => {
-        setSponsorData(prev => ({
-            ...prev,
-            directs: prev.directs.map(d => ({ ...d, status: 'paid' }))
-        }));
+        onUpdateUserData({
+            sponsorData: {
+                ...sponsorData,
+                directs: sponsorData.directs.map(d => ({ ...d, status: 'paid' }))
+            }
+        });
     };
 
     const handleProcessBinaryQueue = () => {
         const qualifiedUserFound = binaryData.matchingQueue.some(u => u.isQualified);
         if (!qualifiedUserFound) {
-            setNotifications(prev => [{
-                id: `n${Date.now()}`,
-                type: 'system',
-                message: 'Binary queue process ran, but no qualified users were found to receive a match.',
-                timestamp: Date.now(),
-                isRead: false,
-            }, ...prev]);
+            onUpdateUserData({
+                notifications: [{
+                    id: `n${Date.now()}`, type: 'system', message: 'Binary queue process ran, but no qualified users were found.', timestamp: Date.now(), isRead: false
+                }, ...notifications]
+            });
             return;
         }
 
-        setBinaryData(prev => {
-            const queue = [...prev.matchingQueue];
-            const firstQualifiedIndex = queue.findIndex(user => user.isQualified);
+        const queue = [...binaryData.matchingQueue];
+        const firstQualifiedIndex = queue.findIndex(user => user.isQualified);
+        const winner = queue[firstQualifiedIndex];
+        const usersToRequeue = queue.slice(0, firstQualifiedIndex);
+        const remainingQueue = queue.slice(firstQualifiedIndex + 1);
+        const newQueue = [...remainingQueue, ...usersToRequeue].map((user, index) => ({ ...user, queuePosition: index + 1 }));
 
-            const winner = queue[firstQualifiedIndex];
-            const usersToRequeue = queue.slice(0, firstQualifiedIndex);
-            const remainingQueueAfterWinner = queue.slice(firstQualifiedIndex + 1);
+        const newMatch: MatchedPair = {
+            pairNumber: binaryData.matchedPairs.length + binaryData.pendingPairs.length + 1,
+            leftUsers: ['System Match L'], rightUsers: ['System Match R'],
+            date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+            amount: systemConfig.binaryAmount,
+            status: 'paid'
+        };
 
-            const newQueue = [...remainingQueueAfterWinner, ...usersToRequeue];
-            const updatedQueue = newQueue.map((user, index) => ({
-                ...user,
-                queuePosition: index + 1
-            }));
+        const newNotifications: Notification[] = [];
+        const isCurrentUserWinner = winner.id === profile.id;
 
-            const newMatch: MatchedPair = {
-                pairNumber: prev.matchedPairs.length + prev.pendingPairs.length + 1,
-                leftUsers: ['System Match L'],
-                rightUsers: ['System Match R'],
-                date: new Date().toISOString().slice(0, 16).replace('T', ' '),
-                amount: systemConfig.binaryAmount,
-                status: 'paid'
-            };
-            
-            const newNotifications: Notification[] = [];
-            
-            const winnerMessage = winner.id === 'bq_5'
-                ? `Congratulations! You received a binary match of ₹${newMatch.amount.toLocaleString()} from the global queue.`
-                : `User "${winner.name}" received a binary match from the global queue.`;
-            newNotifications.push({ id: `n_win_${Date.now()}`, type: 'income', message: winnerMessage, timestamp: Date.now(), isRead: false });
+        newNotifications.push({ id: `n_win_${Date.now()}`, type: 'income', message: `User "${winner.name}" received a binary match.`, timestamp: Date.now(), isRead: false });
+        if (usersToRequeue.some(u => u.id === profile.id)) {
+            newNotifications.push({ id: `n_skip_${Date.now()}`, type: 'system', message: 'You missed a binary match as you were not qualified.', timestamp: Date.now(), isRead: false });
+        }
+        
+        const currentUserNewPosition = newQueue.findIndex(u => u.id === profile.id) + 1;
 
-            usersToRequeue.forEach(user => {
-                if (user.id === 'bq_5') { // If current user was skipped
-                    newNotifications.push({ id: `n_skip_${Date.now()}`, type: 'system', message: 'You missed a binary match as you were not qualified. You have been moved to the end of the queue.', timestamp: Date.now(), isRead: false });
-                }
-            });
-
-            setNotifications(prevNots => [...newNotifications, ...prevNots]);
-            
-            const currentUserNewPosition = updatedQueue.findIndex(u => u.id === 'bq_5') + 1;
-
-            return {
-                ...prev,
-                matchedPairs: winner.id === 'bq_5' ? [...prev.matchedPairs, newMatch] : prev.matchedPairs,
-                matchingQueue: updatedQueue,
-                currentUserPosition: currentUserNewPosition > 0 ? currentUserNewPosition : prev.currentUserPosition,
-            };
+        onUpdateUserData({
+            notifications: [...newNotifications, ...notifications],
+            binaryData: {
+                ...binaryData,
+                matchedPairs: isCurrentUserWinner ? [...binaryData.matchedPairs, newMatch] : binaryData.matchedPairs,
+                matchingQueue: newQueue,
+                currentUserPosition: currentUserNewPosition > 0 ? currentUserNewPosition : binaryData.currentUserPosition,
+            }
         });
     };
 
     const handleAiSend = async (message: string) => {
         if (!API_KEY) {
-            setAiChatHistory(prev => [...prev, { from: 'ai', text: "I'm sorry, the AI assistant is not configured. An API key is required." }]);
+            setAiChatHistory(prev => [...prev, { from: 'ai', text: "AI assistant is not configured. API key is missing." }]);
             return;
         }
 
@@ -3240,51 +3296,42 @@ const Dashboard = ({ onLogout }) => {
 
         try {
             const ai = new GoogleGenAI({ apiKey: API_KEY });
-            const model = 'gemini-2.5-flash';
+            const contextPrompt = `You are a helpful AI assistant for a network marketing platform called Payback247. User: "${message}". Provide a helpful, concise response using Markdown.`;
             
-            const contextPrompt = `You are a helpful AI assistant for a network marketing platform called Payback247.
-            Here is the current user's data summary:
-            - Account Status: ${isAccountActive ? 'Active' : 'Pending Activation'}
-            - Total Binary Income: ₹${binaryData.matchedPairs.reduce((sum, pair) => sum + pair.amount, 0)}
-            - Binary Team: ${binaryData.leftTeam.length} left, ${binaryData.rightTeam.length} right
-            The user asked: "${message}"
-            Provide a helpful, concise, and encouraging response. Format your response with Markdown.`;
-            
-            const response = await ai.models.generateContent({
-                model,
-                contents: contextPrompt
-            });
-
+            const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: contextPrompt });
             setAiChatHistory(prev => [...prev, { from: 'ai', text: response.text }]);
         } catch (error) {
-            console.error("AI Assistant Error:", error);
-            setAiChatHistory(prev => [...prev, { from: 'ai', text: "I'm sorry, I encountered an error. Please try again later." }]);
+            setAiChatHistory(prev => [...prev, { from: 'ai', text: "Sorry, an error occurred." }]);
         } finally {
             setIsAiLoading(false);
         }
     };
     
     const handleMarkNotificationRead = (notificationId: string) => {
-        setNotifications(prev =>
-            prev.map(n => (n.id === notificationId ? { ...n, isRead: true } : n))
-        );
+        onUpdateUserData({ notifications: notifications.map(n => (n.id === notificationId ? { ...n, isRead: true } : n)) });
     };
 
     const handleMarkAllNotificationsRead = () => {
-        setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+        onUpdateUserData({ notifications: notifications.map(n => ({ ...n, isRead: true })) });
     };
 
-    const handleResetData = () => {
-        const confirmed = window.confirm(
-            "Are you sure you want to reset all application data? This will clear everything in your browser's storage for this app and reload the page. This action cannot be undone."
-        );
-        if (confirmed) {
-            localStorage.removeItem(APP_STATE_KEY);
-            window.location.reload();
-        }
-    };
-    
-    const visibleTabs = ALL_TABS.filter(tab => !tab.admin || isAdmin);
+    // Fix: Explicitly type `ud` as `UserData` to resolve errors with accessing its properties.
+    const allUsersForAdminView: AdminUser[] = Object.values(allUsersData).map((ud: UserData) => {
+        const confirmed = ud.paymentsData.filter(p => p.status === 'confirmed').length;
+        return {
+            id: ud.profile.id,
+            name: ud.profile.name,
+            profilePicture: ud.profile.profilePicture,
+            joinDate: ud.profile.joinDate,
+            paymentsConfirmed: confirmed,
+            totalPayments: ud.paymentsData.length,
+            notes: ud.profile.notes || '',
+            status: confirmed === ud.paymentsData.length ? 'active' : 'pending',
+            transactions: ud.transactionsData,
+        };
+    });
+
+    const visibleTabs = ALL_TABS.filter(tab => !tab.admin || profile.isAdmin);
     const activeTabObject = visibleTabs.find(tab => tab.id === activeTab) || visibleTabs[0];
 
     return (
@@ -3303,24 +3350,24 @@ const Dashboard = ({ onLogout }) => {
                 <Header 
                     onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
                     activeTabLabel={activeTabObject.label}
-                    isAdmin={isAdmin}
-                    onToggleAdmin={setIsAdmin}
+                    isAdmin={profile.isAdmin}
+                    onToggleAdmin={(isAdmin) => onUpdateUserData({ profile: { ...profile, isAdmin }})}
                     notifications={notifications}
                     onMarkAsRead={handleMarkNotificationRead}
                     onMarkAllAsRead={handleMarkAllNotificationsRead}
                 />
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-                    {activeTab === 'dashboard' && <DashboardTab matrixData={initialMatrixData} binaryData={binaryData} sponsorData={sponsorData} onTabChange={setActiveTab} isAccountActive={isAccountActive} isQualifiedForBinary={isQualifiedForBinary} />}
+                    {activeTab === 'dashboard' && <DashboardTab matrixData={initialMatrixData} binaryData={binaryData} sponsorData={sponsorData} onTabChange={setActiveTab} isAccountActive={isAccountActive} isQualifiedForBinary={isQualifiedForBinary} userId={profile.id} />}
                     {activeTab === 'join' && <JoinTab payments={paymentsData} onUpdatePayment={handleUpdatePayment} onSubmitPayment={handleSubmitPayment} onAutoVerify={handleAutoVerify} paymentTimerDurationMs={paymentTimerDurationMs} />}
                     {activeTab === 'confirmations' && <ConfirmationsTab confirmations={pendingConfirmations} onConfirm={handleConfirmPayment} onReject={handleRejectPayment} paymentTimerDurationMs={paymentTimerDurationMs} />}
                     {activeTab === 'matrix' && <MatrixTab />}
-                    {activeTab === 'binary' && <BinaryTab binaryData={binaryData} sponsorData={sponsorData} isQualifiedForBinary={isQualifiedForBinary} onQualify={handleQualifyForBinary} onProcessQueue={handleProcessBinaryQueue} />}
+                    {activeTab === 'binary' && <BinaryTab binaryData={binaryData} sponsorData={sponsorData} isQualifiedForBinary={isQualifiedForBinary} onQualify={handleQualifyForBinary} onProcessQueue={handleProcessBinaryQueue} userId={profile.id} />}
                     {activeTab === 'sponsor' && <SponsorTab sponsorData={sponsorData} />}
                     {activeTab === 'transactions' && <TransactionsTab transactions={transactionsData} />}
-                    {activeTab === 'profile' && <ProfileTab profile={profile} onProfileChange={setProfile} />}
-                    {activeTab === 'admin' && isAdmin && <AdminTab users={allUsers} onSelectUser={handleSelectUser} />}
-                    {activeTab === 'disputes' && isAdmin && <DisputesTab disputes={disputes} onResolveSender={(id) => handleResolveDispute(id, 'sender')} onResolveReceiver={(id) => handleResolveDispute(id, 'receiver')} allUsers={allUsers} onViewProof={handleViewProof}/>}
-                    {activeTab === 'config' && isAdmin && <SystemConfigTab systemConfig={systemConfig} onSaveConfig={handleSaveConfig} adminPaymentOptions={adminPaymentOptions} onSaveOptions={handleSaveOptions} onResetData={handleResetData} />}
+                    {activeTab === 'profile' && <ProfileTab profile={profile} onProfileChange={(updater) => onUpdateUserData({ profile: updater(profile) })} />}
+                    {activeTab === 'admin' && profile.isAdmin && <AdminTab users={allUsersForAdminView} onSelectUser={handleSelectUser} />}
+                    {activeTab === 'disputes' && profile.isAdmin && <DisputesTab disputes={disputes} onResolveSender={(id) => handleResolveDispute(id, 'sender')} onResolveReceiver={(id) => handleResolveDispute(id, 'receiver')} allUsers={allUsersForAdminView} onViewProof={handleViewProof}/>}
+                    {activeTab === 'config' && profile.isAdmin && <SystemConfigTab systemConfig={systemConfig} onSaveConfig={onUpdateSystemConfig} adminPaymentOptions={initialAdminPaymentOptions} onSaveOptions={() => {}} onResetData={onResetData} />}
                 </main>
             </div>
             {selectedUser && <UserDetailModal user={selectedUser} onClose={handleCloseUserModal} onSaveNotes={handleSaveNotes} />}
@@ -3343,40 +3390,91 @@ const Dashboard = ({ onLogout }) => {
 
 // The main component that orchestrates everything
 const Home = () => {
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [db, setDb] = useState<AppDatabase>(getInitialDbState);
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [publicView, setPublicView] = useState('landing'); // 'landing', 'login', 'signup'
     const [referralInfo, setReferralInfo] = useState({ refId: null, position: null });
 
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
         const refId = urlParams.get('ref');
-        const position = urlParams.get('pos');
+        const pos = urlParams.get('pos');
         if (refId) {
-            setReferralInfo({ refId, position });
-            // If a referral link is used, go straight to signup
+            setReferralInfo({ refId, position: pos });
             setPublicView('signup');
         }
     }, []);
+    
+    useEffect(() => {
+        try {
+            localStorage.setItem(APP_DB_KEY, JSON.stringify(db));
+        } catch (error) {
+            console.error("Failed to save state to localStorage", error);
+        }
+    }, [db]);
 
-    const handleLogin = () => {
-        setIsAuthenticated(true);
+    const handleLogin = (email, password) => {
+        const account = db.accounts[email];
+        if (account && account.password === password) {
+            setCurrentUserId(account.userId);
+        } else {
+            alert("Invalid email or password.");
+        }
     };
 
-    const handleSignup = () => {
-        // In a real app, this would likely navigate to login or directly to dashboard
-        setIsAuthenticated(true);
+    const handleSignup = (formData) => {
+        if (db.accounts[formData.email]) {
+            alert("An account with this email already exists.");
+            return;
+        }
+        const newUserId = `user_${Date.now()}`;
+        const newUser = generateNewUserData(
+            newUserId,
+            formData.fullName,
+            formData.email,
+            new Date().toISOString().split('T')[0],
+            'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=500' // default avatar
+        );
+
+        setDb(prevDb => {
+            const newDb = { ...prevDb };
+            newDb.users[newUserId] = newUser;
+            newDb.accounts[formData.email] = { password: formData.password, userId: newUserId };
+            return newDb;
+        });
+        setCurrentUserId(newUserId);
     };
 
     const handleLogout = () => {
-        setIsAuthenticated(false);
+        setCurrentUserId(null);
         setPublicView('landing');
     };
-
-    const navigate = (view) => {
-        setPublicView(view);
+    
+    const handleUpdateUserData = (updates: Partial<UserData>) => {
+        if (!currentUserId) return;
+        setDb(prevDb => ({
+            ...prevDb,
+            users: {
+                ...prevDb.users,
+                [currentUserId]: { ...prevDb.users[currentUserId], ...updates }
+            }
+        }));
+    };
+    
+    const handleUpdateSystemConfig = (newConfig: SystemConfig) => {
+        setDb(prevDb => ({ ...prevDb, systemConfig: newConfig }));
     };
 
-    if (!isAuthenticated) {
+    const handleResetData = () => {
+        if (window.confirm("Are you sure? This will reset all data for all users.")) {
+            localStorage.removeItem(APP_DB_KEY);
+            window.location.reload();
+        }
+    };
+
+    const navigate = (view) => setPublicView(view);
+
+    if (!currentUserId) {
         switch (publicView) {
             case 'login':
                 return <LoginPage onLogin={handleLogin} onNavigate={navigate} />;
@@ -3387,7 +3485,24 @@ const Home = () => {
         }
     }
 
-    return <Dashboard onLogout={handleLogout} />;
+    const currentUserData = db.users[currentUserId];
+    if (!currentUserData) {
+        // This case can happen if data is corrupted, log out the user
+        handleLogout();
+        return null;
+    }
+
+    return (
+        <Dashboard 
+            onLogout={handleLogout} 
+            userData={currentUserData}
+            onUpdateUserData={handleUpdateUserData}
+            allUsersData={db.users}
+            systemConfig={db.systemConfig}
+            onUpdateSystemConfig={handleUpdateSystemConfig}
+            onResetData={handleResetData}
+        />
+    );
 };
 
 

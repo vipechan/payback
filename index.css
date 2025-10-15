@@ -251,3 +251,26 @@ div[class*="bg-gradient-to-br"] .text-3xl.font-bold {
 body:not(.dashboard-body) {
     background-color: #fff;
 }
+
+/* Mobile Navigation */
+.mobile-nav-overlay {
+    @apply fixed inset-0 bg-black/40 z-40 transition-opacity duration-300 md:hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+.mobile-nav-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.mobile-nav {
+    @apply fixed top-0 right-0 h-full w-72 bg-white z-50 transform transition-transform duration-300 ease-in-out flex flex-col md:hidden;
+    transform: translateX(100%);
+}
+.mobile-nav.open {
+    transform: translateX(0);
+}
+
+.mobile-nav-link {
+    @apply block w-full p-3 text-lg font-semibold text-gray-700 rounded-lg hover:bg-gray-100;
+}
